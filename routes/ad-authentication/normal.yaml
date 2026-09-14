@@ -1,0 +1,31 @@
+schema_version: 1
+kind: authentication
+id: normal-domain-logon
+name: Normal domain logon
+description: Alice performs a fresh domain sign-in on WS01 with no cached TGT.
+environment_id: corp-lab
+start_at: 2026-09-14T09:00:00Z
+protocol: kerberos
+flow: fresh_interactive_domain_logon
+
+attempts:
+  - id: alice-interactive-logon
+    offset_seconds: 0
+    identity_id: alice
+    source_host_id: ws01
+    destination_host_id: ws01
+    authority_host_id: dc01
+    credential_type: password
+    access_type: interactive
+    outcome: success
+
+expected_events:
+  - event_id: 4768
+    host_id: dc01
+    count: 1
+  - event_id: 4769
+    host_id: dc01
+    count: 1
+  - event_id: 4624
+    host_id: ws01
+    count: 1

@@ -1,0 +1,82 @@
+schema_version: 1
+kind: corporate
+id: corp-lab
+name: SimLab corporate environment
+
+domains:
+  - id: corp-domain
+    dns_name: corp.lab
+    netbios_name: CORP
+    sid: S-1-5-21-1111111111-2222222222-3333333333
+
+audit_policies:
+  - id: auth-monitoring-baseline-dc
+    name: Authentication monitoring baseline - domain controller
+    settings:
+      - category: logon
+        outcomes: [success, failure]
+      - category: credential_validation
+        outcomes: [success, failure]
+      - category: kerberos_authentication_service
+        outcomes: [success, failure]
+      - category: kerberos_service_ticket_operations
+        outcomes: [success, failure]
+
+  - id: auth-monitoring-baseline-member
+    name: Authentication monitoring baseline - domain member
+    settings:
+      - category: logon
+        outcomes: [success, failure]
+
+hosts:
+  - id: dc01
+    hostname: DC01
+    platform: windows
+    role: domain_controller
+    domain_id: corp-domain
+    account_rid: 1000
+    ipv4_address: 10.10.0.10
+    event_profile_id: windows-security-2025-01
+    audit_policy_id: auth-monitoring-baseline-dc
+
+  - id: ws01
+    hostname: WS01
+    platform: windows
+    role: workstation
+    domain_id: corp-domain
+    account_rid: 1001
+    ipv4_address: 10.10.0.101
+    event_profile_id: windows-security-2025-01
+    audit_policy_id: auth-monitoring-baseline-member
+
+  - id: fs01
+    hostname: FS01
+    platform: windows
+    role: member_server
+    domain_id: corp-domain
+    account_rid: 1002
+    ipv4_address: 10.10.0.20
+    event_profile_id: windows-security-2025-01
+    audit_policy_id: auth-monitoring-baseline-member
+
+services:
+  - id: fs01-smb
+    kind: smb
+    host_id: fs01
+    port: 445
+
+identities:
+  - id: alice
+    username: alice
+    domain_id: corp-domain
+    rid: 1101
+
+  - id: bob
+    username: bob
+    domain_id: corp-domain
+    rid: 1102
+
+  - id: carol
+    username: carol
+    domain_id: corp-domain
+    rid: 1103
