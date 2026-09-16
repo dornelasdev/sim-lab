@@ -16,6 +16,9 @@ build/
 dist/
 *.egg-info/
 
+# Generated lab artifacts
+/outputs/
+
 # Local configuration
 .env
 .env.*

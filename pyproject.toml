@@ -5,13 +5,16 @@ build-backend = "hatchling.build"
 [project]
 name = "sim-lab"
 version = "0.1.0"
-description = "A resource-efficient, data-centered cybersecurity laboratory"
+description = "A lightweight, data-centered cybersecurity laboratory"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.13,<3",
     "PyYAML>=6.0.3,<7",
 ]
+
+[project.scripts]
+simlab = "simlab.cli:main"
 
 [dependency-groups]
 dev = [

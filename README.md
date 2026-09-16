@@ -17,6 +17,7 @@ for SOC operations, adversary emulation, cryptography, and red-team scenarios.
 - NTLM password spray over SMB producing event 4776 on the domain controller
   and 4625 on the file server.
 - Versioned Windows Security event schemas and native Event XML serialization.
+- Content-addressed JSONL and XML bundles with reproducibility metadata.
 - Host audit policies controlling which activity becomes observable.
 - Scenario expectations validating generated event counts and locations.
 
@@ -35,7 +36,7 @@ are not permanent runtime dependencies.
 ```text
 environments/   Shared lab topology and audit policies
 routes/         Declarative security scenarios
-src/simlab/     Validation and telemetry generation
+src/simlab/     Validation, telemetry generation, and artifact export
 tests/          Behavioral and schema tests
 ```
 
@@ -45,6 +46,22 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
+```
+
+## Generate authentication artifacts
+
+```bash
+uv run simlab generate authentication \
+  --environment environments/corp-lab.yaml \
+  --route routes/ad-authentication/normal.yaml
+```
+
+Each content-addressed bundle under `outputs/<scenario-id>/` contains:
+
+```text
+manifest.json   Scenario, environment, profile, policy, and artifact digests
+events.jsonl    Self-contained event records with SimLab provenance
+xml/            Matching native Windows Event XML files
 ```
 
 ## Validation
