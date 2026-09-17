@@ -5,6 +5,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from simlab.analysis import analyze_authentication_bundle
 from simlab.artifacts import generate_authentication_bundle
 from simlab.authentication import load_authentication_scenario
 from simlab.environment import load_environment
@@ -45,6 +46,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generated artifact root (default: outputs).",
     )
     authentication.set_defaults(handler=_generate_authentication)
+
+    detect = commands.add_parser(
+        "detect",
+        help="Analyze generated lab artifacts.",
+    )
+    detectors = detect.add_subparsers(dest="detector", required=True)
+
+    authentication_detection = detectors.add_parser(
+        "authentication",
+        help="Detect password-spray behavior in an authentication bundle.",
+    )
+    authentication_detection.add_argument(
+        "--telemetry",
+        required=True,
+        type=Path,
+        help="Path to an authentication telemetry bundle.",
+    )
+    authentication_detection.add_argument(
+        "--profile",
+        required=True,
+        type=Path,
+        help="Path to a password-spray detection profile.",
+    )
+    authentication_detection.add_argument(
+        "--output-root",
+        default=Path("outputs/analyses"),
+        type=Path,
+        help="Analysis artifact root (default: outputs/analyses).",
+    )
+    authentication_detection.set_defaults(handler=_detect_authentication)
     return parser
 
 
@@ -70,6 +101,17 @@ def _generate_authentication(arguments: argparse.Namespace) -> int:
     )
     action = "created" if bundle.created else "reused"
     print(f"{action}: {bundle.path}")
+    return 0
+
+
+def _detect_authentication(arguments: argparse.Namespace) -> int:
+    analysis = analyze_authentication_bundle(
+        arguments.telemetry,
+        arguments.profile,
+        arguments.output_root,
+    )
+    action = "created" if analysis.created else "reused"
+    print(f"{action}: {analysis.path}")
     return 0
 
 

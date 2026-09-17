@@ -18,6 +18,7 @@ for SOC operations, adversary emulation, cryptography, and red-team scenarios.
   and 4625 on the file server.
 - Versioned Windows Security event schemas and native Event XML serialization.
 - Content-addressed JSONL and XML bundles with reproducibility metadata.
+- Reference password-spray detection over independent 4776 and 4625 signals.
 - Host audit policies controlling which activity becomes observable.
 - Scenario expectations validating generated event counts and locations.
 
@@ -36,7 +37,8 @@ are not permanent runtime dependencies.
 ```text
 environments/   Shared lab topology and audit policies
 routes/         Declarative security scenarios
-src/simlab/     Validation, telemetry generation, and artifact export
+src/simlab/     Validation, telemetry generation, detection, and artifacts
+detections/     Versioned reference detection profiles
 tests/          Behavioral and schema tests
 ```
 
@@ -56,13 +58,40 @@ uv run simlab generate authentication \
   --route routes/ad-authentication/normal.yaml
 ```
 
-Each content-addressed bundle under `outputs/<scenario-id>/` contains:
+Each content-addressed telemetry bundle under `outputs/<scenario-id>/` contains:
 
 ```text
-manifest.json   Scenario, environment, profile, policy, and artifact digests
+manifest.json   Scenario, environment, profile, policy, and artifact context
 events.jsonl    Self-contained event records with SimLab provenance
 xml/            Matching native Windows Event XML files
+SHA256SUMS      Exact SHA-256 checksums for every file above
 ```
+
+The manifest's source-host aliases are a derived environment snapshot used to
+resolve hostname and IP observations. They are analysis context, not event
+evidence.
+
+## Analyze authentication artifacts
+
+```bash
+uv run simlab detect authentication \
+  --telemetry outputs/<scenario-id>/<telemetry-id> \
+  --profile detections/authentication/password-spray.yaml
+```
+
+Analysis is stored separately under
+`outputs/analyses/<source-telemetry-id>/<analysis-id>/`. Its `findings.jsonl`
+contains analyst-facing hypotheses; `manifest.json` records the exact telemetry
+bundle and detection profile. Its `SHA256SUMS` covers both files.
+
+Verify the exact stored files from inside either bundle:
+
+```bash
+shasum -a 256 -c SHA256SUMS
+```
+
+Manifest fields ending in `canonical_sha256` identify normalized validated
+definitions. They are semantic provenance digests, not raw file checksums.
 
 ## Validation
 

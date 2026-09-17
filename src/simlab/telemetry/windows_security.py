@@ -16,7 +16,7 @@ SECURITY_CHANNEL = "Security"
 
 
 def _event_field(name: str) -> FieldInfo:
-    return Field(serialization_alias=name)
+    return Field(alias=name)
 
 
 class Event4624Data(Definition):

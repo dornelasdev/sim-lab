@@ -15,7 +15,12 @@ Identifier = Annotated[
 class Definition(BaseModel):
     """Apply consistent validation rules to SimLab definition files."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        validate_by_alias=True,
+        validate_by_name=True,
+    )
 
 
 def read_yaml(path: str | Path) -> Any:

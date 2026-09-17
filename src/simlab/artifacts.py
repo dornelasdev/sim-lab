@@ -1,23 +1,24 @@
 """Deterministic artifact bundles for generated SimLab telemetry."""
 
-import json
-import shutil
 from collections import Counter
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
-from hashlib import sha256
 from ipaddress import IPv4Address
 from pathlib import Path
-from tempfile import mkdtemp
-from typing import Any, Literal
+from typing import Literal, Self
 from uuid import UUID, uuid5
 
-from pydantic import BaseModel, Field
+from pydantic import Field, model_validator
 
 from simlab.authentication import AuthenticationScenario
 from simlab.definition import Definition, Identifier
 from simlab.environment import CorporateEnvironment
+from simlab.storage import (
+    canonical_json,
+    content_address,
+    model_digest,
+    pretty_json,
+    sha256sums,
+    write_verified_directory,
+)
 from simlab.telemetry.authentication import (
     EventFieldProvenance,
     GeneratedAuthenticationTelemetry,
@@ -42,48 +43,87 @@ class AuthenticationArtifactRecord(Definition):
     field_provenance: EventFieldProvenance
 
 
-class ArtifactFileSummary(Definition):
-    """Digest metadata for one bundle file."""
+class ArtifactFileReference(Definition):
+    """Location of one file within an artifact bundle."""
 
     path: str
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class ArtifactCollectionSummary(Definition):
-    """Digest metadata for an ordered collection of bundle files."""
+class ArtifactCollectionReference(Definition):
+    """Location and size of a file collection within an artifact bundle."""
 
     directory: str
     file_count: int = Field(ge=0)
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class AuthenticationBundleManifest(Definition):
+class HostAliasSnapshot(Definition):
+    """Derived hostname and address aliases used for source resolution."""
+
+    host_id: Identifier
+    hostname: str = Field(min_length=1)
+    ipv4_addresses: tuple[IPv4Address, ...] = Field(min_length=1)
+
+
+class AuthenticationTelemetryManifest(Definition):
     """Run-wide context for a deterministic authentication artifact bundle."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     kind: Literal["authentication_telemetry"] = "authentication_telemetry"
-    bundle_id: Identifier
+    telemetry_id: Identifier
     environment_id: Identifier
-    environment_definition_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    environment_definition_canonical_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     scenario_id: Identifier
-    scenario_definition_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scenario_definition_canonical_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     event_count: int = Field(ge=0)
     event_profile_ids: tuple[Identifier, ...]
     audit_policy_ids: tuple[Identifier, ...]
+    source_alias_context: Literal["derived_environment_snapshot"]
+    source_host_aliases: tuple[HostAliasSnapshot, ...]
     observability_source: Literal["host_audit_policy"]
     clock_assumption: Literal["synchronized_host_clocks"]
     timing_basis: Literal["attempt_start_plus_synthetic_event_delay"]
-    jsonl: ArtifactFileSummary
-    xml: ArtifactCollectionSummary
+    jsonl: ArtifactFileReference
+    xml: ArtifactCollectionReference
+
+    @model_validator(mode="after")
+    def validate_source_aliases(self) -> Self:
+        """Require fixed artifact paths and unambiguous source aliases."""
+
+        if self.jsonl.path != "events.jsonl":
+            raise ValueError("authentication JSONL path must be 'events.jsonl'")
+        if self.xml.directory != "xml":
+            raise ValueError("authentication XML directory must be 'xml'")
+
+        host_ids = [alias.host_id for alias in self.source_host_aliases]
+        hostnames = [alias.hostname.casefold() for alias in self.source_host_aliases]
+        addresses = [
+            address
+            for alias in self.source_host_aliases
+            for address in alias.ipv4_addresses
+        ]
+        if len(host_ids) != len(set(host_ids)):
+            raise ValueError("source alias host IDs must be unique")
+        if len(hostnames) != len(set(hostnames)):
+            raise ValueError("source alias hostnames must be unique")
+        if len(addresses) != len(set(addresses)):
+            raise ValueError("source alias IP addresses must be unique")
+        return self
 
 
-@dataclass(frozen=True)
-class AuthenticationArtifactBundle:
+class AuthenticationArtifactBundle(Definition):
     """Location and manifest returned after writing or reusing a bundle."""
 
     path: Path
-    manifest: AuthenticationBundleManifest
+    manifest: AuthenticationTelemetryManifest
     created: bool
+
+
+class LoadedAuthenticationBundle(Definition):
+    """An integrity-checked telemetry bundle ready for analysis."""
+
+    path: Path
+    manifest: AuthenticationTelemetryManifest
+    records: tuple[AuthenticationArtifactRecord, ...]
 
 
 def generate_authentication_bundle(
@@ -101,82 +141,143 @@ def generate_authentication_bundle(
 
     telemetry = generate_authentication_telemetry(scenario, environment)
     records = _artifact_records(telemetry, scenario, environment)
-    jsonl_bytes = b"".join(_canonical_json(record) + b"\n" for record in records)
+    source_aliases = _source_host_aliases(scenario, environment)
+    jsonl_bytes = b"".join(canonical_json(record) + b"\n" for record in records)
     xml_files = {
         record.xml_path: to_event_xml(record.event).encode("utf-8")
         for record in records
     }
-    xml_collection_digest = _collection_digest(xml_files)
-
     hosts = {host.id: host for host in environment.hosts}
     manifest_content = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "authentication_telemetry",
         "environment_id": environment.id,
-        "environment_definition_sha256": _model_digest(environment),
+        "environment_definition_canonical_sha256": model_digest(environment),
         "scenario_id": scenario.id,
-        "scenario_definition_sha256": _model_digest(scenario),
+        "scenario_definition_canonical_sha256": model_digest(scenario),
         "event_count": len(records),
         "event_profile_ids": sorted({record.event.profile_id for record in records}),
         "audit_policy_ids": sorted(
             {hosts[record.host_id].audit_policy_id for record in records}
         ),
+        "source_alias_context": "derived_environment_snapshot",
+        "source_host_aliases": source_aliases,
         "observability_source": telemetry.observability_source,
         "clock_assumption": telemetry.clock_assumption,
         "timing_basis": telemetry.timing_basis,
         "jsonl": {
             "path": "events.jsonl",
-            "sha256": sha256(jsonl_bytes).hexdigest(),
         },
         "xml": {
             "directory": "xml",
             "file_count": len(xml_files),
-            "sha256": xml_collection_digest,
         },
     }
-    bundle_id = f"bundle-{sha256(_canonical_json(manifest_content)).hexdigest()}"
-    manifest = AuthenticationBundleManifest(
-        bundle_id=bundle_id,
-        **manifest_content,
-    )
-    manifest_bytes = _pretty_json(manifest)
-    expected_files = {
-        "manifest.json": manifest_bytes,
+    content_files = {
         "events.jsonl": jsonl_bytes,
         **xml_files,
     }
+    telemetry_id = content_address("telemetry", manifest_content, content_files)
+    manifest = AuthenticationTelemetryManifest(
+        telemetry_id=telemetry_id,
+        **manifest_content,
+    )
+    manifest_bytes = pretty_json(manifest)
+    checksummed_files = {
+        "manifest.json": manifest_bytes,
+        **content_files,
+    }
+    expected_files = {
+        **checksummed_files,
+        "SHA256SUMS": sha256sums(checksummed_files),
+    }
 
-    scenario_root = Path(output_root) / scenario.id
-    bundle_path = scenario_root / bundle_id
-    scenario_root.mkdir(parents=True, exist_ok=True)
-    if bundle_path.exists():
-        _verify_existing_bundle(bundle_path, expected_files)
-        return AuthenticationArtifactBundle(
-            path=bundle_path,
-            manifest=manifest,
-            created=False,
-        )
-
-    temporary_path = Path(mkdtemp(prefix=f".{bundle_id}-", dir=scenario_root))
-    try:
-        _write_files(temporary_path, expected_files)
-        temporary_path.rename(bundle_path)
-    except Exception:
-        if temporary_path.exists():
-            shutil.rmtree(temporary_path)
-        if bundle_path.exists():
-            _verify_existing_bundle(bundle_path, expected_files)
-            return AuthenticationArtifactBundle(
-                path=bundle_path,
-                manifest=manifest,
-                created=False,
-            )
-        raise
+    bundle_path = Path(output_root) / scenario.id / telemetry_id
+    created = write_verified_directory(bundle_path, expected_files)
 
     return AuthenticationArtifactBundle(
         path=bundle_path,
         manifest=manifest,
-        created=True,
+        created=created,
+    )
+
+
+def load_authentication_bundle(path: str | Path) -> LoadedAuthenticationBundle:
+    """Load a telemetry bundle and verify its identity and stored artifacts."""
+
+    bundle_path = Path(path)
+    manifest_path = bundle_path / "manifest.json"
+    events_path = bundle_path / "events.jsonl"
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = AuthenticationTelemetryManifest.model_validate_json(manifest_bytes)
+
+    if bundle_path.name != manifest.telemetry_id:
+        raise ValueError(
+            f"telemetry directory {bundle_path.name!r} does not match manifest ID "
+            f"{manifest.telemetry_id!r}"
+        )
+
+    jsonl_bytes = events_path.read_bytes()
+    records = tuple(
+        AuthenticationArtifactRecord.model_validate_json(line)
+        for line in jsonl_bytes.splitlines()
+        if line
+    )
+    if len(records) != manifest.event_count:
+        raise ValueError("events.jsonl count does not match its manifest")
+    if len({record.event_instance_id for record in records}) != len(records):
+        raise ValueError("events.jsonl contains duplicate event-instance IDs")
+    if len({record.xml_path for record in records}) != len(records):
+        raise ValueError("events.jsonl contains duplicate XML paths")
+
+    xml_files = {
+        record.xml_path: (bundle_path / record.xml_path).read_bytes()
+        for record in records
+    }
+    if len(xml_files) != manifest.xml.file_count:
+        raise ValueError("XML file count does not match its manifest")
+    for record in records:
+        expected_xml = to_event_xml(record.event).encode("utf-8")
+        if xml_files[record.xml_path] != expected_xml:
+            raise ValueError(f"XML file does not match JSONL event: {record.xml_path}")
+
+    content_files = {
+        "events.jsonl": jsonl_bytes,
+        **xml_files,
+    }
+    manifest_content = manifest.model_dump(exclude={"telemetry_id"})
+    expected_telemetry_id = content_address(
+        "telemetry",
+        manifest_content,
+        content_files,
+    )
+    if manifest.telemetry_id != expected_telemetry_id:
+        raise ValueError("telemetry content does not match its telemetry ID")
+
+    checksummed_files = {
+        "manifest.json": manifest_bytes,
+        **content_files,
+    }
+    expected_files = {
+        **checksummed_files,
+        "SHA256SUMS": sha256sums(checksummed_files),
+    }
+    actual_files = {
+        file.relative_to(bundle_path).as_posix()
+        for file in bundle_path.rglob("*")
+        if file.is_file()
+    }
+    if actual_files != set(expected_files):
+        raise ValueError(
+            "telemetry bundle contains invalid checksums or unexpected files"
+        )
+    if (bundle_path / "SHA256SUMS").read_bytes() != expected_files["SHA256SUMS"]:
+        raise ValueError("telemetry bundle contains invalid checksums")
+
+    return LoadedAuthenticationBundle(
+        path=bundle_path,
+        manifest=manifest,
+        records=records,
     )
 
 
@@ -221,6 +322,49 @@ def _artifact_records(
     return records
 
 
+def _source_host_aliases(
+    scenario: AuthenticationScenario,
+    environment: CorporateEnvironment,
+) -> tuple[HostAliasSnapshot, ...]:
+    """Capture only aliases required to resolve this scenario's event sources."""
+
+    source_host_ids = sorted({attempt.source_host_id for attempt in scenario.attempts})
+    hosts = {host.id: host for host in environment.hosts}
+    aliases: list[HostAliasSnapshot] = []
+
+    for source_host_id in source_host_ids:
+        source = hosts[source_host_id]
+        hostname_matches = [
+            host.id
+            for host in environment.hosts
+            if host.hostname.casefold() == source.hostname.casefold()
+        ]
+        if len(hostname_matches) != 1:
+            raise ValueError(
+                f"source hostname {source.hostname!r} is ambiguous in the environment"
+            )
+
+        address_matches = [
+            host.id
+            for host in environment.hosts
+            if host.ipv4_address == source.ipv4_address
+        ]
+        if len(address_matches) != 1:
+            raise ValueError(
+                f"source address {source.ipv4_address} is ambiguous in the environment"
+            )
+
+        aliases.append(
+            HostAliasSnapshot(
+                host_id=source.id,
+                hostname=source.hostname,
+                ipv4_addresses=(source.ipv4_address,),
+            )
+        )
+
+    return tuple(aliases)
+
+
 def _event_instance_id(
     *,
     environment_id: str,
@@ -239,76 +383,3 @@ def _event_instance_id(
         )
     )
     return f"event-{uuid5(_ARTIFACT_NAMESPACE, identity)}"
-
-
-def _write_files(root: Path, files: dict[str, bytes]) -> None:
-    for relative_path, content in files.items():
-        destination = root / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
-
-
-def _verify_existing_bundle(root: Path, expected: dict[str, bytes]) -> None:
-    if not root.is_dir():
-        raise FileExistsError(f"bundle path exists but is not a directory: {root}")
-
-    actual = {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in root.rglob("*")
-        if path.is_file()
-    }
-    if actual != expected:
-        raise FileExistsError(
-            f"bundle path exists with content that does not match its ID: {root}"
-        )
-
-
-def _collection_digest(files: dict[str, bytes]) -> str:
-    entries = [
-        {"path": path, "sha256": sha256(content).hexdigest()}
-        for path, content in sorted(files.items())
-    ]
-    return sha256(_canonical_json(entries)).hexdigest()
-
-
-def _model_digest(model: BaseModel) -> str:
-    return sha256(_canonical_json(model)).hexdigest()
-
-
-def _canonical_json(value: Any) -> bytes:
-    normalized = _normalize(value)
-    return json.dumps(
-        normalized,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-
-
-def _pretty_json(value: Any) -> bytes:
-    normalized = _normalize(value)
-    return (
-        json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    ).encode("utf-8")
-
-
-def _normalize(value: Any) -> Any:
-    if isinstance(value, BaseModel):
-        return {
-            field.serialization_alias or name: _normalize(getattr(value, name))
-            for name, field in type(value).model_fields.items()
-        }
-    if isinstance(value, dict):
-        return {str(key): _normalize(item) for key, item in value.items()}
-    if isinstance(value, (set, frozenset)):
-        normalized = [_normalize(item) for item in value]
-        return sorted(normalized, key=_canonical_json)
-    if isinstance(value, (list, tuple)):
-        return [_normalize(item) for item in value]
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, (IPv4Address, Path)):
-        return str(value)
-    if isinstance(value, Enum):
-        return value.value
-    return value
