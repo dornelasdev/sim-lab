@@ -56,6 +56,25 @@ def test_password_spray_has_deterministic_timeline(environment) -> None:
     ]
 
 
+def test_repeated_password_failure_is_a_single_user_negative_control(
+    environment,
+) -> None:
+    scenario = load_authentication_scenario(
+        ROUTE_PATH / "repeated-password-failure.yaml",
+        environment,
+    )
+
+    assert scenario.protocol == "ntlm"
+    assert [attempt.identity_id for attempt in scenario.attempts] == [
+        "alice",
+        "alice",
+        "alice",
+    ]
+    assert all(
+        attempt.failure_reason == "bad_password" for attempt in scenario.attempts
+    )
+
+
 def test_rejects_attempts_out_of_order() -> None:
     data = read_yaml(ROUTE_PATH / "password-spray.yaml")
     data["attempts"][1]["offset_seconds"] = 20

@@ -9,6 +9,7 @@ from simlab.analysis import analyze_authentication_bundle
 from simlab.artifacts import generate_authentication_bundle
 from simlab.authentication import load_authentication_scenario
 from simlab.environment import load_environment
+from simlab.wazuh import export_wazuh_replay
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +77,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Analysis artifact root (default: outputs/analyses).",
     )
     authentication_detection.set_defaults(handler=_detect_authentication)
+
+    export = commands.add_parser(
+        "export",
+        help="Export telemetry for an external security platform.",
+    )
+    exporters = export.add_subparsers(dest="exporter", required=True)
+
+    wazuh = exporters.add_parser(
+        "wazuh",
+        help="Export Windows telemetry for Wazuh EventChannel replay.",
+    )
+    wazuh.add_argument(
+        "--telemetry",
+        required=True,
+        type=Path,
+        help="Path to an authentication telemetry bundle.",
+    )
+    wazuh.add_argument(
+        "--output-root",
+        default=Path("outputs/wazuh"),
+        type=Path,
+        help="Wazuh replay artifact root (default: outputs/wazuh).",
+    )
+    wazuh.set_defaults(handler=_export_wazuh)
     return parser
 
 
@@ -112,6 +137,16 @@ def _detect_authentication(arguments: argparse.Namespace) -> int:
     )
     action = "created" if analysis.created else "reused"
     print(f"{action}: {analysis.path}")
+    return 0
+
+
+def _export_wazuh(arguments: argparse.Namespace) -> int:
+    replay = export_wazuh_replay(
+        arguments.telemetry,
+        arguments.output_root,
+    )
+    action = "created" if replay.created else "reused"
+    print(f"{action}: {replay.path}")
     return 0
 
 

@@ -1,0 +1,8 @@
+services:
+  manager:
+    image: wazuh/wazuh-manager:4.14.7
+    hostname: simlab-wazuh-manager
+    restart: "no"
+    volumes:
+      - ./ruleset/0575-win-base_rules.xml:/var/ossec/ruleset/rules/0575-win-base_rules.xml:ro
+      - ./rules/simlab_password_spray.xml:/var/ossec/etc/rules/simlab_password_spray.xml:ro

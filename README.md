@@ -19,6 +19,7 @@ for SOC operations, adversary emulation, cryptography, and red-team scenarios.
 - Versioned Windows Security event schemas and native Event XML serialization.
 - Content-addressed JSONL and XML bundles with reproducibility metadata.
 - Reference password-spray detection over independent 4776 and 4625 signals.
+- Wazuh EventChannel replay exports and native password-spray rules.
 - Host audit policies controlling which activity becomes observable.
 - Scenario expectations validating generated event counts and locations.
 
@@ -39,6 +40,7 @@ environments/   Shared lab topology and audit policies
 routes/         Declarative security scenarios
 src/simlab/     Validation, telemetry generation, detection, and artifacts
 detections/     Versioned reference detection profiles
+integrations/   Optional platform-specific rules and runtime configuration
 tests/          Behavioral and schema tests
 ```
 
@@ -92,6 +94,18 @@ shasum -a 256 -c SHA256SUMS
 
 Manifest fields ending in `canonical_sha256` identify normalized validated
 definitions. They are semantic provenance digests, not raw file checksums.
+
+## Export to Wazuh
+
+```bash
+uv run simlab export wazuh \
+  --telemetry outputs/<scenario-id>/<telemetry-id>
+```
+
+The export contains Wazuh EventChannel input plus separate provenance linking
+every replay line to its SimLab event. A temporary manager-only Wazuh 4.14.7
+workflow and its positive and negative validation cases are documented in
+[docs/wazuh-replay.md](docs/wazuh-replay.md).
 
 ## Validation
 

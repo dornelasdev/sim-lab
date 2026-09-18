@@ -88,3 +88,43 @@ def test_detects_authentication_bundle_from_cli(tmp_path, capsys) -> None:
     detection_output = capsys.readouterr()
     assert detection_output.err == ""
     assert detection_output.out.startswith("created: ")
+
+
+def test_exports_wazuh_replay_from_cli(tmp_path, capsys) -> None:
+    telemetry_root = tmp_path / "telemetry"
+    replay_root = tmp_path / "wazuh"
+    assert (
+        main(
+            [
+                "generate",
+                "authentication",
+                "--environment",
+                str(ENVIRONMENT_PATH),
+                "--route",
+                str(SPRAY_ROUTE_PATH),
+                "--output-root",
+                str(telemetry_root),
+            ]
+        )
+        == 0
+    )
+    generated_output = capsys.readouterr()
+    telemetry_path = generated_output.out.removeprefix("created: ").strip()
+
+    arguments = [
+        "export",
+        "wazuh",
+        "--telemetry",
+        telemetry_path,
+        "--output-root",
+        str(replay_root),
+    ]
+    assert main(arguments) == 0
+    created_output = capsys.readouterr()
+    assert created_output.err == ""
+    assert created_output.out.startswith("created: ")
+
+    assert main(arguments) == 0
+    reused_output = capsys.readouterr()
+    assert reused_output.err == ""
+    assert reused_output.out.startswith("reused: ")
