@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 
 from simlab.workflow import (
+    DefinitionStatus,
+    WorkflowCatalog,
     discover_workflow_catalog,
     inspect_telemetry_bundle,
+    resolve_telemetry_definition_context,
     run_generation_stage,
 )
 
@@ -41,6 +44,10 @@ def test_inspection_presents_focused_evidence_and_related_events(tmp_path) -> No
     assert inspection.overview.event_count == 6
     assert inspection.overview.event_counts == ((4625, 3), (4776, 3))
     assert inspection.overview.host_counts == (("dc01", 3), ("fs01", 3))
+    assert inspection.overview.host_event_counts == (
+        ("dc01", 4776, 3),
+        ("fs01", 4625, 3),
+    )
     assert len(inspection.events) == 6
 
     credential_validation = inspection.events[0]
@@ -98,3 +105,43 @@ def test_catalog_ignores_legacy_and_identity_mismatched_bundles(tmp_path) -> Non
     catalog = discover_workflow_catalog(PROJECT_ROOT, output_root)
 
     assert catalog.telemetry_bundles == (generated.path.resolve(),)
+
+
+def test_resolves_recorded_definition_status_without_blocking_inspection(
+    tmp_path,
+) -> None:
+    generated = run_generation_stage(
+        ENVIRONMENT_PATH,
+        ROUTE_PATH / "password-spray.yaml",
+        tmp_path / "outputs",
+    )
+    inspection = inspect_telemetry_bundle(generated.path)
+    current_catalog = discover_workflow_catalog(PROJECT_ROOT, tmp_path / "outputs")
+
+    matching = resolve_telemetry_definition_context(inspection, current_catalog)
+
+    assert matching.environment.status is DefinitionStatus.MATCHING
+    assert matching.scenario.status is DefinitionStatus.MATCHING
+
+    changed_route = tmp_path / "routes" / "password-spray.yaml"
+    changed_route.parent.mkdir()
+    original_route = ROUTE_PATH / "password-spray.yaml"
+    changed_route.write_text(
+        original_route.read_text().replace(
+            "name: Internal password spray",
+            "name: Changed password spray",
+        )
+    )
+    changed_catalog = WorkflowCatalog(
+        environments=(),
+        routes=(changed_route,),
+        detection_profiles=(),
+        telemetry_bundles=(generated.path,),
+    )
+
+    changed = resolve_telemetry_definition_context(inspection, changed_catalog)
+
+    assert changed.environment.status is DefinitionStatus.UNAVAILABLE
+    assert changed.environment.path is None
+    assert changed.scenario.status is DefinitionStatus.CHANGED
+    assert changed.scenario.path == changed_route

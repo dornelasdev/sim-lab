@@ -79,15 +79,19 @@ evidence.
 uv run simlab tui
 ```
 
-The full-screen terminal interface discovers environments, authentication
-routes, detection profiles, and existing telemetry bundles. It guides each
-stage explicitly:
+The full-screen terminal interface provides two entry paths: start a new
+simulation or inspect existing telemetry. A guarded sidebar guides the workflow
+through environment, route, acquisition, inspection, detection, and export.
 
-1. Generate or select an exact content-addressed telemetry bundle.
-2. Inspect event counts, focused Windows evidence, provenance, related events,
-   and the matching XML artifact.
-3. Run reference detection and review its findings.
-4. Export the inspected bundle for Wazuh replay.
+Each page explains the relevant security context. Scenario expectations remain
+separate from verified telemetry and detection findings. Existing telemetry is
+inspectable from its recorded manifest even when its local environment or route
+definition has changed or is unavailable.
+
+Environment and route choices become read-only provenance after telemetry is
+acquired. Starting a new simulation resets only the TUI workflow. Detection
+profiles similarly lock to their result; a new analysis can reuse the same
+telemetry without modifying previous artifacts.
 
 The interface displays the equivalent CLI commands for every available stage.
 Docker startup and `wazuh-logtest` remain in the separate workflow documented in

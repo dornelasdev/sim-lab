@@ -3,6 +3,7 @@
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 from simlab.analysis import (
@@ -16,8 +17,10 @@ from simlab.artifacts import (
     generate_authentication_bundle,
     load_authentication_bundle,
 )
-from simlab.authentication import load_authentication_scenario
+from simlab.authentication import AuthenticationScenario, load_authentication_scenario
+from simlab.definition import read_yaml
 from simlab.environment import load_environment
+from simlab.storage import model_digest
 from simlab.wazuh import WazuhReplayBundle, export_wazuh_replay
 
 
@@ -29,6 +32,32 @@ class WorkflowCatalog:
     routes: tuple[Path, ...]
     detection_profiles: tuple[Path, ...]
     telemetry_bundles: tuple[Path, ...]
+
+
+class DefinitionStatus(StrEnum):
+    """Relationship between recorded provenance and a local definition."""
+
+    MATCHING = "matching"
+    CHANGED = "changed"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class DefinitionContext:
+    """One recorded definition and its optional local counterpart."""
+
+    identifier: str
+    canonical_sha256: str
+    status: DefinitionStatus
+    path: Path | None
+
+
+@dataclass(frozen=True)
+class TelemetryDefinitionContext:
+    """Local-definition status for an existing telemetry bundle."""
+
+    environment: DefinitionContext
+    scenario: DefinitionContext
 
 
 @dataclass(frozen=True)
@@ -68,10 +97,13 @@ class TelemetryOverview:
     path: Path
     telemetry_id: str
     environment_id: str
+    environment_definition_canonical_sha256: str
     scenario_id: str
+    scenario_definition_canonical_sha256: str
     event_count: int
     event_counts: tuple[tuple[int, int], ...]
     host_counts: tuple[tuple[str, int], ...]
+    host_event_counts: tuple[tuple[str, int, int], ...]
     event_profile_ids: tuple[str, ...]
     audit_policy_ids: tuple[str, ...]
     started_at: datetime | None
@@ -192,6 +224,9 @@ def inspect_telemetry_bundle(path: str | Path) -> TelemetryInspection:
     bundle = load_authentication_bundle(path)
     event_counts = Counter(record.event.event_id for record in bundle.records)
     host_counts = Counter(record.host_id for record in bundle.records)
+    host_event_counts = Counter(
+        (record.host_id, record.event.event_id) for record in bundle.records
+    )
     occurred_at = tuple(record.event.occurred_at for record in bundle.records)
     related_by_attempt = {
         attempt_id: tuple(
@@ -209,16 +244,47 @@ def inspect_telemetry_bundle(path: str | Path) -> TelemetryInspection:
         path=bundle.path,
         telemetry_id=bundle.manifest.telemetry_id,
         environment_id=bundle.manifest.environment_id,
+        environment_definition_canonical_sha256=(
+            bundle.manifest.environment_definition_canonical_sha256
+        ),
         scenario_id=bundle.manifest.scenario_id,
+        scenario_definition_canonical_sha256=(
+            bundle.manifest.scenario_definition_canonical_sha256
+        ),
         event_count=bundle.manifest.event_count,
         event_counts=tuple(sorted(event_counts.items())),
         host_counts=tuple(sorted(host_counts.items())),
+        host_event_counts=tuple(
+            (host_id, event_id, count)
+            for (host_id, event_id), count in sorted(host_event_counts.items())
+        ),
         event_profile_ids=bundle.manifest.event_profile_ids,
         audit_policy_ids=bundle.manifest.audit_policy_ids,
         started_at=min(occurred_at) if occurred_at else None,
         ended_at=max(occurred_at) if occurred_at else None,
     )
     return TelemetryInspection(overview=overview, events=events)
+
+
+def resolve_telemetry_definition_context(
+    inspection: TelemetryInspection,
+    catalog: WorkflowCatalog,
+) -> TelemetryDefinitionContext:
+    """Compare recorded definition digests with available local definitions."""
+
+    overview = inspection.overview
+    return TelemetryDefinitionContext(
+        environment=_match_environment_definition(
+            overview.environment_id,
+            overview.environment_definition_canonical_sha256,
+            catalog.environments,
+        ),
+        scenario=_match_scenario_definition(
+            overview.scenario_id,
+            overview.scenario_definition_canonical_sha256,
+            catalog.routes,
+        ),
+    )
 
 
 def _yaml_files(root: Path) -> tuple[Path, ...]:
@@ -243,6 +309,72 @@ def _telemetry_bundle_paths(output_root: Path) -> tuple[Path, ...]:
         if bundle_path.name == manifest.telemetry_id:
             bundles.append(bundle_path)
     return tuple(bundles)
+
+
+def _match_environment_definition(
+    identifier: str,
+    canonical_sha256: str,
+    paths: tuple[Path, ...],
+) -> DefinitionContext:
+    changed_path: Path | None = None
+    for path in paths:
+        try:
+            environment = load_environment(path)
+        except (OSError, ValueError):
+            continue
+        if environment.id != identifier:
+            continue
+        if model_digest(environment) == canonical_sha256:
+            return DefinitionContext(
+                identifier=identifier,
+                canonical_sha256=canonical_sha256,
+                status=DefinitionStatus.MATCHING,
+                path=path,
+            )
+        changed_path = changed_path or path
+    return DefinitionContext(
+        identifier=identifier,
+        canonical_sha256=canonical_sha256,
+        status=(
+            DefinitionStatus.CHANGED
+            if changed_path is not None
+            else DefinitionStatus.UNAVAILABLE
+        ),
+        path=changed_path,
+    )
+
+
+def _match_scenario_definition(
+    identifier: str,
+    canonical_sha256: str,
+    paths: tuple[Path, ...],
+) -> DefinitionContext:
+    changed_path: Path | None = None
+    for path in paths:
+        try:
+            scenario = AuthenticationScenario.model_validate(read_yaml(path))
+        except (OSError, ValueError):
+            continue
+        if scenario.id != identifier:
+            continue
+        if model_digest(scenario) == canonical_sha256:
+            return DefinitionContext(
+                identifier=identifier,
+                canonical_sha256=canonical_sha256,
+                status=DefinitionStatus.MATCHING,
+                path=path,
+            )
+        changed_path = changed_path or path
+    return DefinitionContext(
+        identifier=identifier,
+        canonical_sha256=canonical_sha256,
+        status=(
+            DefinitionStatus.CHANGED
+            if changed_path is not None
+            else DefinitionStatus.UNAVAILABLE
+        ),
+        path=changed_path,
+    )
 
 
 def _event_view(
