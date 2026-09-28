@@ -128,3 +128,15 @@ def test_exports_wazuh_replay_from_cli(tmp_path, capsys) -> None:
     reused_output = capsys.readouterr()
     assert reused_output.err == ""
     assert reused_output.out.startswith("reused: ")
+
+
+def test_launches_guided_tui_from_explicit_subcommand(tmp_path, monkeypatch) -> None:
+    launched = []
+
+    monkeypatch.setattr(
+        "simlab.tui.run_tui",
+        lambda project_root: launched.append(project_root),
+    )
+
+    assert main(["tui", "--project-root", str(tmp_path)]) == 0
+    assert launched == [tmp_path]

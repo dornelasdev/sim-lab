@@ -73,6 +73,26 @@ The manifest's source-host aliases are a derived environment snapshot used to
 resolve hostname and IP observations. They are analysis context, not event
 evidence.
 
+## Guided terminal workflow
+
+```bash
+uv run simlab tui
+```
+
+The full-screen terminal interface discovers environments, authentication
+routes, detection profiles, and existing telemetry bundles. It guides each
+stage explicitly:
+
+1. Generate or select an exact content-addressed telemetry bundle.
+2. Inspect event counts, focused Windows evidence, provenance, related events,
+   and the matching XML artifact.
+3. Run reference detection and review its findings.
+4. Export the inspected bundle for Wazuh replay.
+
+The interface displays the equivalent CLI commands for every available stage.
+Docker startup and `wazuh-logtest` remain in the separate workflow documented in
+[docs/wazuh-replay.md](docs/wazuh-replay.md).
+
 ## Analyze authentication artifacts
 
 ```bash

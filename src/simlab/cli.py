@@ -5,11 +5,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from simlab.analysis import analyze_authentication_bundle
-from simlab.artifacts import generate_authentication_bundle
-from simlab.authentication import load_authentication_scenario
-from simlab.environment import load_environment
-from simlab.wazuh import export_wazuh_replay
+from simlab.workflow import (
+    run_detection_stage,
+    run_generation_stage,
+    run_wazuh_export_stage,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,6 +17,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(prog="simlab")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    tui = commands.add_parser(
+        "tui",
+        help="Open the guided SimLab terminal interface.",
+    )
+    tui.add_argument(
+        "--project-root",
+        default=Path.cwd(),
+        type=Path,
+        help="Project root used for definition discovery (default: current directory).",
+    )
+    tui.set_defaults(handler=_run_tui)
 
     generate = commands.add_parser(
         "generate",
@@ -117,11 +129,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _generate_authentication(arguments: argparse.Namespace) -> int:
-    environment = load_environment(arguments.environment)
-    scenario = load_authentication_scenario(arguments.route, environment)
-    bundle = generate_authentication_bundle(
-        scenario,
-        environment,
+    bundle = run_generation_stage(
+        arguments.environment,
+        arguments.route,
         arguments.output_root,
     )
     action = "created" if bundle.created else "reused"
@@ -130,7 +140,7 @@ def _generate_authentication(arguments: argparse.Namespace) -> int:
 
 
 def _detect_authentication(arguments: argparse.Namespace) -> int:
-    analysis = analyze_authentication_bundle(
+    analysis = run_detection_stage(
         arguments.telemetry,
         arguments.profile,
         arguments.output_root,
@@ -141,12 +151,19 @@ def _detect_authentication(arguments: argparse.Namespace) -> int:
 
 
 def _export_wazuh(arguments: argparse.Namespace) -> int:
-    replay = export_wazuh_replay(
+    replay = run_wazuh_export_stage(
         arguments.telemetry,
         arguments.output_root,
     )
     action = "created" if replay.created else "reused"
     print(f"{action}: {replay.path}")
+    return 0
+
+
+def _run_tui(arguments: argparse.Namespace) -> int:
+    from simlab.tui import run_tui
+
+    run_tui(arguments.project_root)
     return 0
 
 
