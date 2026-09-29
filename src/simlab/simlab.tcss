@@ -1,0 +1,284 @@
+Screen {
+    layout: vertical;
+    background: $background;
+    color: $text;
+}
+
+Header {
+    background: $background;
+    color: $text;
+    border-bottom: solid $surface-lighten-1;
+}
+
+Footer {
+    background: $panel;
+}
+
+#root-content {
+    height: 1fr;
+}
+
+#welcome-page {
+    padding: 3 8;
+    align: center middle;
+}
+
+#welcome-card {
+    width: 76;
+    height: auto;
+    padding: 2 3;
+    border: round $surface-lighten-3;
+    background: $panel;
+}
+
+#welcome-card Button {
+    width: 1fr;
+    margin-top: 1;
+}
+
+.welcome-title, .page-title, .dialog-title {
+    text-style: bold;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#workflow-shell {
+    height: 1fr;
+}
+
+#sidebar {
+    width: 23;
+    height: 1fr;
+    padding: 1;
+    border-right: solid $border-blurred;
+    background: $background;
+}
+
+#sidebar-title {
+    height: 2;
+    text-style: bold;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#sidebar .stage-button {
+    width: 1fr;
+    min-width: 0;
+    height: 1;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    text-style: none;
+    content-align: left middle;
+}
+
+#sidebar .stage-button:hover,
+#sidebar .stage-button:focus {
+    background: $surface-lighten-1;
+    color: $text;
+    text-style: bold;
+}
+
+#sidebar .stage-button.nav-active {
+    border-left: thick $primary;
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+}
+
+#sidebar .stage-button.nav-done {
+    color: $success;
+}
+
+#sidebar .stage-button.nav-open {
+    color: $text;
+}
+
+#sidebar .stage-button.nav-locked {
+    color: $text-disabled;
+    text-opacity: 55%;
+    opacity: 100%;
+}
+
+#workflow-guide {
+    dock: bottom;
+    width: 1fr;
+    min-width: 0;
+    height: 3;
+    padding: 0 1;
+    border: none;
+    border-top: solid $surface-lighten-1;
+    background: transparent;
+    color: $primary;
+    content-align: left middle;
+}
+
+#workflow-guide:hover,
+#workflow-guide:focus {
+    background: $surface-lighten-1;
+    text-style: bold;
+}
+
+#main-panel {
+    width: 1fr;
+    height: 1fr;
+    background: $background;
+}
+
+#stage-content {
+    height: 1fr;
+}
+
+.workflow-page {
+    height: 1fr;
+    padding: 1 2;
+}
+
+.guidance, .context-panel {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.guidance {
+    padding: 0 1;
+    color: $text-muted;
+}
+
+.context-panel {
+    padding: 1 2;
+    border-left: thick $surface-lighten-3;
+    background: $surface;
+}
+
+.field {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.field Label {
+    color: $text-muted;
+}
+
+Select > SelectCurrent {
+    color: $text;
+    background: $surface;
+    border: tall $border-blurred;
+}
+
+Select:focus > SelectCurrent {
+    background: $surface-lighten-1;
+    border: tall $border;
+}
+
+Select > SelectOverlay {
+    color: $text;
+    background: $panel;
+    border: tall $border;
+}
+
+.page-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+.page-actions Button {
+    margin-right: 1;
+}
+
+#telemetry-results {
+    height: 1fr;
+    min-height: 12;
+}
+
+#overview, #xml-preview {
+    padding: 1 2;
+}
+
+#event-layout {
+    height: 1fr;
+    border: solid $surface-lighten-1;
+}
+
+#event-table {
+    width: 3fr;
+    height: 1fr;
+    background: $surface;
+}
+
+#event-detail-scroll {
+    width: 2fr;
+    height: 1fr;
+    border-left: solid $border-blurred;
+    background: $surface;
+}
+
+#event-detail {
+    padding: 1 2;
+}
+
+#detect-scroll, #export-scroll {
+    height: 1fr;
+    min-height: 10;
+}
+
+#findings, #wazuh-result {
+    height: auto;
+    padding: 1 2;
+}
+
+#findings.has-output, #wazuh-result.has-output {
+    border-left: thick $surface-lighten-3;
+    background: $surface;
+}
+
+#commands {
+    height: 7;
+    padding: 1 2;
+    color: $text-muted;
+    background: $background;
+    border-top: solid $surface-lighten-1;
+    overflow-y: auto;
+}
+
+ConfirmResetScreen {
+    align: center middle;
+}
+
+GuideScreen {
+    align: center middle;
+}
+
+#guide-dialog {
+    width: 96;
+    max-width: 90%;
+    height: 38;
+    max-height: 90%;
+    padding: 1 2;
+    border: round $primary;
+    background: $panel;
+}
+
+#guide-content-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#guide-content {
+    height: auto;
+}
+
+#guide-actions {
+    height: 3;
+    margin-top: 1;
+    align: right middle;
+}
+
+#confirm-dialog {
+    width: 70;
+    height: auto;
+    padding: 2 3;
+    border: round $warning;
+    background: $panel;
+}

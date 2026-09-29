@@ -88,6 +88,9 @@ separate from verified telemetry and detection findings. Existing telemetry is
 inspectable from its recorded manifest even when its local environment or route
 definition has changed or is unavailable.
 
+Open the stage-aware Guide with its visible control or the `g` key. The Guide is
+read-only, and `g` or Escape closes it without changing workflow state.
+
 Environment and route choices become read-only provenance after telemetry is
 acquired. Starting a new simulation resets only the TUI workflow. Detection
 profiles similarly lock to their result; a new analysis can reuse the same

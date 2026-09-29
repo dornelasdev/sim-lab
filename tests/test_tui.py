@@ -4,7 +4,7 @@ from pathlib import Path
 from rich.text import Text
 from textual.widgets import Button, DataTable, Select, Static
 
-from simlab.tui import SimLabApp, WorkflowMode, WorkflowStage
+from simlab.tui import GuideScreen, SimLabApp, WorkflowMode, WorkflowStage
 from simlab.workflow import DefinitionStatus, run_generation_stage
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +24,10 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
 
             assert app.mode is WorkflowMode.NEW
             assert app.active_stage is WorkflowStage.ENVIRONMENT
+            assert app.theme == "simlab-soc"
+            assert app.query_one("#nav-environment", Button).has_class("nav-active")
             assert app.query_one("#nav-route", Button).disabled is True
+            assert app.query_one("#nav-route", Button).has_class("nav-locked")
 
             await pilot.click("#environment-next")
             await pilot.pause()
@@ -50,6 +53,34 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             assert app.selected_event.xml.startswith("<?xml")
             assert app.query_one("#nav-detect", Button).disabled is False
             assert app.query_one("#nav-export", Button).disabled is True
+            assert app.query_one("#nav-inspect", Button).has_class("nav-active")
+            assert app.query_one("#nav-acquire", Button).has_class("nav-done")
+
+            inspection = app.inspection
+            await pilot.click("#workflow-guide")
+            await pilot.pause()
+            assert isinstance(app.screen, GuideScreen)
+            guide_content = app.screen.query_one("#guide-content", Static).content
+            guide_text = (
+                guide_content.plain
+                if isinstance(guide_content, Text)
+                else str(guide_content)
+            )
+            assert "Field origin labels" in guide_text
+            assert "not fields a defender would receive" in guide_text
+            await pilot.press("g")
+            await pilot.pause()
+            assert not isinstance(app.screen, GuideScreen)
+            assert app.inspection is inspection
+            assert app.active_stage is WorkflowStage.INSPECT
+
+            await pilot.press("g")
+            await pilot.pause()
+            assert isinstance(app.screen, GuideScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, GuideScreen)
+
             comparison_content = app.query_one("#inspection-context", Static).content
             assert isinstance(comparison_content, Text)
             comparison = comparison_content.plain
@@ -80,6 +111,7 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             assert app.query_one("#profile-select", Select).disabled is True
             assert app.query_one("#detect", Button).display is False
             assert app.query_one("#new-analysis", Button).display is True
+            assert app.query_one("#findings").has_class("has-output")
             assert len(list((output_root / "analyses").glob("*/*/manifest.json"))) == 1
 
             telemetry_path = app.inspection.overview.path
@@ -91,6 +123,7 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             assert app.query_one("#profile-select", Select).disabled is False
             assert app.query_one("#detect", Button).display is True
             assert app.query_one("#new-analysis", Button).display is False
+            assert not app.query_one("#findings").has_class("has-output")
 
             await pilot.click("#detect")
             await pilot.pause()
@@ -100,6 +133,7 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             await pilot.pause()
 
             assert app.wazuh_export_complete is True
+            assert app.query_one("#wazuh-result").has_class("has-output")
             assert len(list((output_root / "wazuh").glob("*/*/manifest.json"))) == 1
 
     asyncio.run(exercise())

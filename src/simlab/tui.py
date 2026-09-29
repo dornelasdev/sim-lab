@@ -11,6 +11,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.theme import Theme
 from textual.widgets import (
     Button,
     ContentSwitcher,
@@ -48,6 +49,35 @@ from simlab.workflow import (
     run_wazuh_export_stage,
 )
 
+SIMLAB_THEME = Theme(
+    name="simlab-soc",
+    primary="#367983",
+    secondary="#394D54",
+    accent="#4A8690",
+    success="#519873",
+    warning="#B88B43",
+    error="#B6535D",
+    foreground="#CDD5DA",
+    background="#06090D",
+    surface="#0D1218",
+    panel="#10161D",
+    boost="#1C252D",
+    variables={
+        "block-cursor-background": "#253B42",
+        "block-cursor-blurred-background": "#18262C",
+        "block-cursor-foreground": "#E0E6E9",
+        "border": "#48656C",
+        "border-blurred": "#222A31",
+        "button-color-foreground": "#05090C",
+        "button-focus-text-style": "bold",
+        "footer-key-foreground": "#5B858C",
+        "input-selection-background": "#1F3136",
+        "scrollbar": "#1E2A31",
+        "scrollbar-active": "#365F67",
+        "scrollbar-hover": "#293B43",
+    },
+)
+
 
 class WorkflowMode(StrEnum):
     """Ways to enter the guided workflow."""
@@ -67,6 +97,124 @@ class WorkflowStage(StrEnum):
     EXPORT = "export"
 
 
+GUIDE_CONTENT: dict[WorkflowStage | None, tuple[str, str]] = {
+    None: (
+        "Starting a workflow",
+        (
+            "Purpose\n"
+            "Choose whether SimLab should generate deterministic telemetry from "
+            "local definitions or inspect an existing telemetry artifact.\n\n"
+            "New simulation\n"
+            "Builds context from an environment and authentication route before "
+            "acquiring telemetry.\n\n"
+            "Existing telemetry\n"
+            "Starts from a stored bundle and its manifest. Recorded provenance "
+            "remains authoritative even if the current local definitions have "
+            "changed or are unavailable.\n\n"
+            "Navigation states\n"
+            "▶ marks the current stage, ✓ a completed stage, ○ an available "
+            "stage, and × a locked stage."
+        ),
+    ),
+    WorkflowStage.ENVIRONMENT: (
+        "Environment guide",
+        (
+            "Purpose\n"
+            "Select the simulated infrastructure in which authentication occurs. "
+            "The definition identifies relevant domains, hosts, services, "
+            "identities, and audit coverage.\n\n"
+            "What to examine\n"
+            "Check whether the available systems and services can support the "
+            "authentication behavior you intend to study. The environment is a "
+            "declared model, not proof that equivalent infrastructure was run."
+        ),
+    ),
+    WorkflowStage.ROUTE: (
+        "Authentication route guide",
+        (
+            "Purpose\n"
+            "Choose the authentication activity SimLab will represent inside the "
+            "selected environment.\n\n"
+            "What to examine\n"
+            "Review the protocol path, participating systems, attempted identities, "
+            "and expected Windows events. These expectations state what the "
+            "scenario intends to produce; they are not observed evidence."
+        ),
+    ),
+    WorkflowStage.ACQUIRE: (
+        "Telemetry acquisition guide",
+        (
+            "Purpose\n"
+            "Create, reuse, or open an exact telemetry bundle for inspection.\n\n"
+            "Provenance boundary\n"
+            "A bundle manifest records the environment and scenario identities "
+            "used for that artifact. After acquisition, those inputs become "
+            "read-only for the current workflow. Starting a new simulation clears "
+            "only TUI state; it does not delete stored artifacts."
+        ),
+    ),
+    WorkflowStage.INSPECT: (
+        "Telemetry inspection guide",
+        (
+            "Purpose\n"
+            "Examine the stored evidence before applying a detection conclusion. "
+            "When opening existing telemetry, the manifest supplies the recorded "
+            "context even if earlier stages were skipped.\n\n"
+            "Overview\n"
+            "Summarizes bundle identity, provenance, event totals, host coverage, "
+            "and whether recorded definitions still match local definitions.\n\n"
+            "Events\n"
+            "Lists the Windows events in occurrence order. Use the host, event ID, "
+            "target identity, and status together to understand where each part of "
+            "the authentication activity became visible.\n\n"
+            "Selected event details\n"
+            "Shows evidence used to relate an event to its authentication attempt. "
+            "Field origin labels distinguish documented, derived, and synthetic "
+            "values. SimLab correlation identifiers are ground truth for the "
+            "simulation, not fields a defender would receive from Windows.\n\n"
+            "XML\n"
+            "Shows the stored Windows-event representation for the selected event. "
+            "Use it to connect the normalized table view to the artifact that can "
+            "be exported for downstream tooling.\n\n"
+            "Interpretation boundary\n"
+            "Expected-versus-observed comparisons verify whether the bundle matches "
+            "its declared scenario. They do not by themselves prove that a "
+            "detection would identify the behavior."
+        ),
+    ),
+    WorkflowStage.DETECT: (
+        "Detection guide",
+        (
+            "Purpose\n"
+            "Evaluate inspected telemetry using observable conditions from a "
+            "detection profile.\n\n"
+            "What to examine\n"
+            "Review the profile signals, grouping fields, threshold, and time "
+            "window before running it. Detection intentionally does not use "
+            "SimLab's synthetic ground-truth correlation.\n\n"
+            "Result boundary\n"
+            "A finding explains what matched the profile; it is an analytical "
+            "inference rather than another Windows event. A completed analysis is "
+            "locked to its profile. New analysis reuses the same telemetry without "
+            "altering it."
+        ),
+    ),
+    WorkflowStage.EXPORT: (
+        "Wazuh export guide",
+        (
+            "Purpose\n"
+            "Adapt supported stored Windows events into replay artifacts for the "
+            "separate Wazuh runtime workflow.\n\n"
+            "What to examine\n"
+            "Confirm the supported and omitted event counts, target manager "
+            "version, and representation status. Export does not start Docker, "
+            "submit events, or run wazuh-logtest. Wazuh ingestion time controls "
+            "frequency windows during replay."
+        ),
+    ),
+}
+
+
 STAGE_ORDER = (
     WorkflowStage.ENVIRONMENT,
     WorkflowStage.ROUTE,
@@ -75,6 +223,35 @@ STAGE_ORDER = (
     WorkflowStage.DETECT,
     WorkflowStage.EXPORT,
 )
+
+
+class GuideScreen(ModalScreen[None]):
+    """Show read-only guidance for the current workflow stage."""
+
+    BINDINGS = [
+        ("escape", "close", "Close"),
+        ("g", "close", "Close guide"),
+    ]
+
+    def __init__(self, title: str, content: str) -> None:
+        super().__init__()
+        self.guide_title = title
+        self.guide_content = content
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="guide-dialog"):
+            yield Static(self.guide_title, classes="dialog-title", markup=False)
+            with VerticalScroll(id="guide-content-scroll"):
+                yield Static(self.guide_content, id="guide-content", markup=False)
+            with Horizontal(id="guide-actions"):
+                yield Button("Close guide", id="close-guide", variant="primary")
+
+    @on(Button.Pressed, "#close-guide")
+    def close_button(self) -> None:
+        self.dismiss()
+
+    def action_close(self) -> None:
+        self.dismiss()
 
 
 class ConfirmResetScreen(ModalScreen[bool]):
@@ -115,168 +292,8 @@ class SimLabApp(App[None]):
 
     TITLE = "SimLab"
     SUB_TITLE = "Guided authentication workflow"
-    BINDINGS = [("q", "quit", "Quit")]
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-
-    #root-content {
-        height: 1fr;
-    }
-
-    #welcome-page {
-        padding: 3 8;
-        align: center middle;
-    }
-
-    #welcome-card {
-        width: 76;
-        height: auto;
-        padding: 2 3;
-        border: round $accent;
-        background: $panel;
-    }
-
-    #welcome-card Button {
-        width: 1fr;
-        margin-top: 1;
-    }
-
-    .welcome-title, .page-title, .dialog-title {
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-    }
-
-    #workflow-shell {
-        height: 1fr;
-    }
-
-    #sidebar {
-        width: 27;
-        height: 1fr;
-        padding: 1;
-        border-right: solid $accent;
-        background: $panel;
-    }
-
-    #sidebar-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    #sidebar Button {
-        width: 1fr;
-        height: 3;
-        margin-bottom: 1;
-        content-align: left middle;
-    }
-
-    #main-panel {
-        width: 1fr;
-        height: 1fr;
-    }
-
-    #stage-content {
-        height: 1fr;
-    }
-
-    .workflow-page {
-        height: 1fr;
-        padding: 1 2;
-    }
-
-    .guidance, .context-panel {
-        height: auto;
-        margin-bottom: 1;
-        padding: 1 2;
-    }
-
-    .guidance {
-        color: $text-muted;
-    }
-
-    .context-panel {
-        border: round $accent;
-        background: $surface;
-    }
-
-    .field {
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    .field Label {
-        color: $text-muted;
-    }
-
-    .page-actions {
-        height: 3;
-        margin-top: 1;
-    }
-
-    .page-actions Button {
-        margin-right: 1;
-    }
-
-    #telemetry-results {
-        height: 1fr;
-        min-height: 12;
-    }
-
-    #overview, #findings, #wazuh-result, #xml-preview {
-        padding: 1 2;
-    }
-
-    #event-layout {
-        height: 1fr;
-    }
-
-    #event-table {
-        width: 3fr;
-        height: 1fr;
-    }
-
-    #event-detail-scroll {
-        width: 2fr;
-        height: 1fr;
-        border-left: solid $accent;
-    }
-
-    #event-detail {
-        padding: 1 2;
-    }
-
-    #detect-scroll, #export-scroll {
-        height: 1fr;
-        min-height: 10;
-    }
-
-    #findings, #export-scroll {
-        border: round $accent;
-    }
-
-    #commands {
-        height: 7;
-        padding: 1 2;
-        background: $surface;
-        border-top: solid $accent;
-        overflow-y: auto;
-    }
-
-    ConfirmResetScreen {
-        align: center middle;
-    }
-
-    #confirm-dialog {
-        width: 70;
-        height: auto;
-        padding: 2 3;
-        border: round $warning;
-        background: $panel;
-    }
-    """
+    BINDINGS = [("q", "quit", "Quit"), ("g", "toggle_guide", "Guide")]
+    CSS_PATH = "simlab.tcss"
 
     def __init__(
         self,
@@ -284,6 +301,8 @@ class SimLabApp(App[None]):
         output_root: str | Path | None = None,
     ) -> None:
         super().__init__()
+        self.register_theme(SIMLAB_THEME)
+        self.theme = SIMLAB_THEME.name
         self.project_root = Path(project_root).resolve()
         self.output_root = (
             Path(output_root).resolve()
@@ -323,6 +342,7 @@ class SimLabApp(App[None]):
                     "Inspect existing telemetry",
                     id="start-existing",
                 )
+                yield Button("Guide", id="welcome-guide", classes="guide-button")
 
             with Horizontal(id="workflow-shell"):
                 with Vertical(id="sidebar"):
@@ -334,6 +354,7 @@ class SimLabApp(App[None]):
                             classes="stage-button",
                             disabled=True,
                         )
+                    yield Button("Guide", id="workflow-guide", classes="guide-button")
 
                 with Vertical(id="main-panel"):
                     with ContentSwitcher(
@@ -603,6 +624,14 @@ class SimLabApp(App[None]):
     def start_existing(self) -> None:
         self._reset_workflow(WorkflowMode.EXISTING)
         self._show_stage(WorkflowStage.ACQUIRE)
+
+    @on(Button.Pressed, ".guide-button")
+    def open_guide(self) -> None:
+        self.action_toggle_guide()
+
+    def action_toggle_guide(self) -> None:
+        title, content = GUIDE_CONTENT[self.active_stage]
+        self.push_screen(GuideScreen(title, content))
 
     @on(Button.Pressed, ".stage-button")
     def navigate_sidebar(self, event: Button.Pressed) -> None:
@@ -1598,23 +1627,29 @@ class SimLabApp(App[None]):
     def _update_ui(self) -> None:
         if not self.is_mounted:
             return
+        state_markers = {
+            "active": "▶",
+            "done": "✓",
+            "open": "○",
+            "locked": "×",
+        }
         for index, stage in enumerate(STAGE_ORDER, start=1):
             button = self.query_one(f"#nav-{stage.value}", Button)
             available = self._stage_available(stage)
             complete = self._stage_complete(stage)
             if stage is self.active_stage:
                 state = "active"
-                button.variant = "primary"
             elif complete:
                 state = "done"
-                button.variant = "success"
             elif available:
                 state = "open"
-                button.variant = "default"
             else:
                 state = "locked"
-                button.variant = "default"
-            button.label = f"[{state}] {index}. {stage.value.title()}"
+            button.variant = "default"
+            for candidate in state_markers:
+                button.set_class(candidate == state, f"nav-{candidate}")
+            button.label = f"{state_markers[state]} {index} {stage.value.title()}"
+            button.tooltip = f"{stage.value.title()}: {state}"
             button.disabled = not available
 
         existing = self.mode is WorkflowMode.EXISTING
@@ -1643,6 +1678,14 @@ class SimLabApp(App[None]):
         self.query_one("#export-wazuh", Button).disabled = not (
             self.inspection is not None
             and (self.analysis_complete or self.wazuh_export_complete)
+        )
+        self.query_one("#findings").set_class(
+            self.analysis_complete,
+            "has-output",
+        )
+        self.query_one("#wazuh-result").set_class(
+            self.wazuh_export_complete,
+            "has-output",
         )
         self._refresh_detection_page()
         self._update_commands()
