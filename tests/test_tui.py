@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+import pytest
 from rich.text import Text
 from textual.widgets import Button, DataTable, Select, Static
 
@@ -11,6 +12,64 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT_PATH = PROJECT_ROOT / "environments" / "corp-lab.yaml"
 ROUTE_PATH = PROJECT_ROOT / "routes" / "ad-authentication"
 SPRAY_ROUTE_PATH = ROUTE_PATH / "password-spray.yaml"
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_kerberos_workflow_explains_detection_coverage(tmp_path, existing) -> None:
+    output_root = tmp_path / "outputs"
+    route_path = ROUTE_PATH / "kerberos-logon-failure.yaml"
+    generated = (
+        run_generation_stage(ENVIRONMENT_PATH, route_path, output_root)
+        if existing
+        else None
+    )
+
+    async def exercise() -> None:
+        app = SimLabApp(PROJECT_ROOT, output_root)
+        async with app.run_test(size=(150, 50)) as pilot:
+            if generated is not None:
+                await pilot.click("#start-existing")
+                await pilot.pause()
+                app.query_one("#telemetry-select", Select).value = str(
+                    generated.path.resolve()
+                )
+                await pilot.pause()
+                await pilot.click("#inspect")
+            else:
+                await pilot.click("#start-new")
+                await pilot.pause()
+                await pilot.click("#environment-next")
+                await pilot.pause()
+                app.query_one("#route-select", Select).value = str(route_path.resolve())
+                await pilot.pause()
+                await pilot.click("#route-next")
+                await pilot.pause()
+                await pilot.click("#generate")
+            await pilot.pause()
+
+            assert app.inspection is not None
+            assert app.inspection.overview.scenario_id == "failed-kerberos-domain-logon"
+            assert app.query_one("#event-table", DataTable).row_count == 2
+            assert app.selected_event is not None
+            assert app.selected_event.event_id == 4771
+            assert '<Data Name="Status">0x18</Data>' in app.selected_event.xml
+
+            await pilot.click("#inspect-next")
+            await pilot.pause()
+            context = app.query_one("#detection-context", Static).content
+            assert isinstance(context, Text)
+            assert "Not assessed:" in context.plain
+            assert "Kerberos activity is not assessed" in context.plain
+            await pilot.click("#detect")
+            await pilot.pause()
+            findings = app.query_one("#findings", Static).content
+            assert isinstance(findings, Text)
+            assert "Findings: 0" in findings.plain
+            assert "Not assessed:" in findings.plain
+            assert app.analysis_complete is True
+            assert app.query_one("#profile-select", Select).disabled is True
+
+    asyncio.run(exercise())
 
 
 def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:

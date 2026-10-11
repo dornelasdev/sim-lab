@@ -1,0 +1,31 @@
+schema_version: 1
+kind: authentication
+id: failed-kerberos-domain-logon
+name: Failed Kerberos domain logon
+description: >-
+  Alice attempts an online sign-in on WS01 with a wrong domain password;
+  DC01 rejects password pre-authentication and WS01 records an interactive failure.
+environment_id: corp-lab
+start_at: 2026-09-14T09:30:00Z
+protocol: kerberos
+flow: fresh_interactive_domain_logon
+
+attempts:
+  - id: alice-interactive-failure
+    offset_seconds: 0
+    identity_id: alice
+    source_host_id: ws01
+    destination_host_id: ws01
+    authority_host_id: dc01
+    credential_type: password
+    access_type: interactive
+    outcome: failure
+    failure_reason: bad_password
+
+expected_events:
+  - event_id: 4771
+    host_id: dc01
+    count: 1
+  - event_id: 4625
+    host_id: ws01
+    count: 1

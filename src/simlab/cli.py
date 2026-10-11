@@ -5,6 +5,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from simlab.artifacts import load_authentication_bundle
+from simlab.detection import describe_password_spray_coverage
 from simlab.workflow import (
     run_detection_stage,
     run_generation_stage,
@@ -147,6 +149,8 @@ def _detect_authentication(arguments: argparse.Namespace) -> int:
     )
     action = "created" if analysis.created else "reused"
     print(f"{action}: {analysis.path}")
+    bundle = load_authentication_bundle(arguments.telemetry)
+    print(describe_password_spray_coverage(bundle))
     return 0
 
 

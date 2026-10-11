@@ -91,6 +91,29 @@ class PasswordSprayDetectionProfile(Definition):
     signals: PasswordSpraySignalDefinitions
 
 
+def describe_password_spray_coverage(bundle: LoadedAuthenticationBundle) -> str:
+    """Describe event-family coverage, independently of findings or ground truth."""
+
+    covered = sum(
+        isinstance(record.event.data, Event4776Data)
+        or (
+            isinstance(record.event.data, Event4625Data)
+            and record.event.data.logon_type == "3"
+            and record.event.data.authentication_package_name.upper() == "NTLM"
+        )
+        for record in bundle.records
+    )
+    total = len(bundle.records)
+    scope = (
+        "Scope: NTLM credential validation (4776) and NTLM network logon "
+        "failures (4625, type 3). Kerberos activity is not assessed."
+    )
+    if not covered:
+        return f"Not assessed: no events fall within this profile's coverage. {scope}"
+    coverage = "Partial coverage" if covered < total else "Within event-family coverage"
+    return f"{coverage}: {covered}/{total} events. {scope}"
+
+
 class DetectionSignalMatch(Definition):
     """One independently qualifying event pattern over a time window."""
 

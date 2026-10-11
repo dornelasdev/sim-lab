@@ -22,6 +22,7 @@ def test_discovers_guided_workflow_inputs_without_selecting_a_bundle(
 
     assert catalog.environments == (ENVIRONMENT_PATH.resolve(),)
     assert {path.name for path in catalog.routes} == {
+        "kerberos-logon-failure.yaml",
         "normal.yaml",
         "password-spray.yaml",
         "repeated-password-failure.yaml",
@@ -78,6 +79,31 @@ def test_catalog_discovers_generated_bundle_by_its_exact_path(tmp_path) -> None:
     catalog = discover_workflow_catalog(PROJECT_ROOT, output_root)
 
     assert catalog.telemetry_bundles == (generated.path.resolve(),)
+
+
+def test_inspects_and_reuses_failed_kerberos_bundle(tmp_path) -> None:
+    first = run_generation_stage(
+        ENVIRONMENT_PATH, ROUTE_PATH / "kerberos-logon-failure.yaml", tmp_path
+    )
+    second = run_generation_stage(
+        ENVIRONMENT_PATH, ROUTE_PATH / "kerberos-logon-failure.yaml", tmp_path
+    )
+    assert first.path == second.path
+    assert second.created is False
+    inspection = inspect_telemetry_bundle(first.path)
+    assert inspection.overview.host_event_counts == (
+        ("dc01", 4771, 1),
+        ("ws01", 4625, 1),
+    )
+    dc = inspection.events[0]
+    assert dc.authentication_package == "Kerberos"
+    assert dc.status == "0x18"
+    assert '<Data Name="PreAuthType">2</Data>' in dc.xml
+    assert len(dc.related_event_instance_ids) == 1
+    assert ("Status", "0x18", "documented") in {
+        (field.name, field.value, field.origin) for field in dc.fields
+    }
+    assert inspection.reference_detection_coverage.startswith("Not assessed:")
 
 
 def test_catalog_ignores_legacy_and_identity_mismatched_bundles(tmp_path) -> None:

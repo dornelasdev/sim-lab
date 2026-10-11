@@ -31,6 +31,7 @@ from simlab.telemetry.windows_security import (
     Event4625Data,
     Event4768Data,
     Event4769Data,
+    Event4771Data,
     Event4776Data,
     WindowsEventData,
     WindowsSecurityEvent,
@@ -43,6 +44,7 @@ _EVENT_DELAY = {
     4769: timedelta(milliseconds=20),
     4624: timedelta(milliseconds=30),
     4776: timedelta(milliseconds=10),
+    4771: timedelta(milliseconds=10),
     4625: timedelta(milliseconds=20),
 }
 _AUDIT_EVENT_DOCUMENTATION = (
@@ -50,7 +52,7 @@ _AUDIT_EVENT_DOCUMENTATION = (
 )
 _EVENT_DOCUMENTATION = {
     event_id: f"{_AUDIT_EVENT_DOCUMENTATION}{event_id}"
-    for event_id in (4624, 4625, 4768, 4769, 4776)
+    for event_id in (4624, 4625, 4768, 4769, 4771, 4776)
 }
 
 
@@ -146,12 +148,16 @@ def generate_authentication_telemetry(
         correlation_id = _guid(scenario.id, attempt.id, "ground-truth")
 
         if scenario.flow is AuthenticationFlow.FRESH_INTERACTIVE_DOMAIN_LOGON:
-            if attempt.outcome is not AuthenticationOutcome.SUCCESS:
+            if attempt.outcome is AuthenticationOutcome.SUCCESS:
+                generate_interactive = _generate_interactive_logon
+            elif attempt.failure_reason is AuthenticationFailureReason.BAD_PASSWORD:
+                generate_interactive = _generate_interactive_failure
+            else:
                 raise ValueError(
-                    "fresh interactive logon generation currently supports success only"
+                    "interactive failure generation supports bad passwords only"
                 )
             generated.extend(
-                _generate_interactive_logon(
+                generate_interactive(
                     scenario=scenario,
                     attempt_id=attempt.id,
                     attempt_at=attempt_at,
@@ -442,6 +448,164 @@ def _generate_interactive_logon(
             )
         )
 
+    return events
+
+
+def _generate_kerberos_preauth_failure(
+    *,
+    scenario: AuthenticationScenario,
+    attempt_id: str,
+    attempt_at: datetime,
+    identity: Identity,
+    source: Host,
+    authority: Host,
+    domain: Domain,
+    record_ids: Counter[str],
+    correlation_id: str,
+) -> GeneratedWindowsEvent:
+    """Build the DC observation independently of any workstation logon."""
+
+    return _build_generated_event(
+        attempt_id=attempt_id,
+        host=authority,
+        domain=domain,
+        event_id=4771,
+        occurred_at=attempt_at + _EVENT_DELAY[4771],
+        record_ids=record_ids,
+        correlation_id=correlation_id,
+        data=Event4771Data(
+            target_user_name=identity.username,
+            target_sid=_identity_sid(domain, identity),
+            service_name=f"krbtgt/{domain.dns_name.upper()}",
+            ticket_options="0x40810010",
+            status="0x18",
+            pre_auth_type="2",
+            ip_address=f"::ffff:{source.ipv4_address}",
+            ip_port=str(_client_port(scenario.id, attempt_id, "as-req")),
+            cert_issuer_name="",
+            cert_serial_number="",
+            cert_thumbprint="",
+        ),
+        derived_data={"TargetUserName", "TargetSid", "ServiceName", "IpAddress"},
+        synthetic_data={"IpPort", "TicketOptions"},
+        notes=(
+            "4771 version 0 uses failure auditing for Kerberos Authentication "
+            "Service on the DC. Status 0x18 represents invalid pre-authentication "
+            "in this known-user, wrong-password scenario.",
+            "Password pre-authentication type 2 is the selected baseline: no "
+            "FAST, smart card, or account with pre-authentication disabled. "
+            "Certificate fields are empty because certificate authentication "
+            "is not used.",
+            "Ticket options are a synthetic baseline, not captured request flags. "
+            "No TGT is issued; simulation correlation is not a Windows identifier.",
+        ),
+    )
+
+
+def _generate_interactive_failure(
+    *,
+    scenario: AuthenticationScenario,
+    attempt_id: str,
+    attempt_at: datetime,
+    identity: Identity,
+    source: Host,
+    destination: Host,
+    authority: Host,
+    domain: Domain,
+    environment: CorporateEnvironment,
+    record_ids: Counter[str],
+    correlation_id: str,
+) -> list[GeneratedWindowsEvent]:
+    """Observe a failed online sign-in under two independent audit policies."""
+
+    events: list[GeneratedWindowsEvent] = []
+    if _is_audited(
+        environment,
+        authority,
+        AuditCategory.KERBEROS_AUTHENTICATION_SERVICE,
+        AuditOutcome.FAILURE,
+    ):
+        events.append(
+            _generate_kerberos_preauth_failure(
+                scenario=scenario,
+                attempt_id=attempt_id,
+                attempt_at=attempt_at,
+                identity=identity,
+                source=source,
+                authority=authority,
+                domain=domain,
+                record_ids=record_ids,
+                correlation_id=correlation_id,
+            )
+        )
+
+    if _is_audited(environment, destination, AuditCategory.LOGON, AuditOutcome.FAILURE):
+        events.append(
+            _build_generated_event(
+                attempt_id=attempt_id,
+                host=destination,
+                domain=domain,
+                event_id=4625,
+                occurred_at=attempt_at + _EVENT_DELAY[4625],
+                record_ids=record_ids,
+                correlation_id=correlation_id,
+                data=Event4625Data(
+                    subject_user_sid="S-1-5-18",
+                    subject_user_name=f"{destination.hostname}$",
+                    subject_domain_name=domain.netbios_name,
+                    subject_logon_id="0x3e7",
+                    target_user_sid="S-1-0-0",
+                    target_user_name=identity.username,
+                    target_domain_name=domain.netbios_name,
+                    status="0xC000006D",
+                    failure_reason="%%2313",
+                    sub_status="0xC000006A",
+                    logon_type="2",
+                    logon_process_name="User32",
+                    authentication_package_name="Kerberos",
+                    workstation_name=destination.hostname,
+                    transmitted_services="-",
+                    lm_package_name="-",
+                    key_length="0",
+                    process_id="0x0",
+                    process_name=r"C:\Windows\System32\winlogon.exe",
+                    ip_address="-",
+                    ip_port="0",
+                ),
+                derived_data={
+                    "SubjectUserName",
+                    "SubjectDomainName",
+                    "TargetUserName",
+                    "TargetDomainName",
+                    "WorkstationName",
+                },
+                synthetic_data={
+                    "SubjectUserSid",
+                    "SubjectLogonId",
+                    "LogonProcessName",
+                    "AuthenticationPackageName",
+                    "ProcessName",
+                },
+                unavailable_data={
+                    "TargetUserSid",
+                    "TransmittedServices",
+                    "LmPackageName",
+                    "ProcessId",
+                    "IpAddress",
+                    "IpPort",
+                },
+                notes=(
+                    "4625 version 0 uses failure auditing for Logon on the "
+                    "workstation. Type 2 is interactive, not a network logon.",
+                    "SYSTEM, User32, winlogon, and the explicit Kerberos package "
+                    "are selected synthetic sign-in context, not verified host "
+                    "observations. Real sign-ins may report Negotiate instead.",
+                    "Status 0xC000006D with substatus 0xC000006A represents a bad "
+                    "password. No successful logon session is created. The DC "
+                    "client address must not be copied into this local logon.",
+                ),
+            )
+        )
     return events
 
 

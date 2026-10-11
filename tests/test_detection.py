@@ -9,6 +9,7 @@ from simlab.detection import (
     FindingConfidence,
     FindingSeverity,
     SignalType,
+    describe_password_spray_coverage,
     detect_authentication_password_spray,
     load_password_spray_profile,
 )
@@ -59,6 +60,29 @@ def test_normal_authentication_does_not_create_a_finding(tmp_path) -> None:
     result = detect_authentication_password_spray(bundle, profile)
 
     assert result.findings == ()
+
+
+def test_kerberos_failures_are_outside_ntlm_detection_coverage(tmp_path) -> None:
+    bundle = _loaded_bundle(tmp_path, "kerberos-logon-failure.yaml")
+    profile = load_password_spray_profile(PROFILE_PATH)
+    assert detect_authentication_password_spray(bundle, profile).findings == ()
+    assert describe_password_spray_coverage(bundle).startswith("Not assessed:")
+    analysis = analyze_authentication_bundle(bundle.path, PROFILE_PATH, tmp_path)
+    assert load_analysis_findings(analysis.path) == ()
+
+
+def test_coverage_uses_event_evidence_not_scenario_labels_or_thresholds(
+    tmp_path,
+) -> None:
+    ntlm = _loaded_bundle(tmp_path, "repeated-password-failure.yaml")
+    kerberos = _loaded_bundle(tmp_path, "kerberos-logon-failure.yaml")
+    assert describe_password_spray_coverage(ntlm).startswith(
+        "Within event-family coverage: 6/6"
+    )
+    mixed = kerberos.model_copy(update={"records": ntlm.records + kerberos.records})
+    assert describe_password_spray_coverage(mixed).startswith("Partial coverage: 6/8")
+    empty = ntlm.model_copy(update={"records": ()})
+    assert describe_password_spray_coverage(empty).startswith("Not assessed:")
 
 
 def test_repeated_failures_for_one_user_do_not_meet_distinct_user_threshold(

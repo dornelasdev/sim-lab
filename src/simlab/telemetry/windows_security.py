@@ -144,6 +144,22 @@ class Event4769Data(Definition):
     session_key_encryption_type: str = _event_field("SessionKeyEncryptionType")
 
 
+class Event4771Data(Definition):
+    """Full version 0 payload for Kerberos pre-authentication failure."""
+
+    target_user_name: str = _event_field("TargetUserName")
+    target_sid: str = _event_field("TargetSid")
+    service_name: str = _event_field("ServiceName")
+    ticket_options: str = _event_field("TicketOptions")
+    status: str = _event_field("Status")
+    pre_auth_type: str = _event_field("PreAuthType")
+    ip_address: str = _event_field("IpAddress")
+    ip_port: str = _event_field("IpPort")
+    cert_issuer_name: str = _event_field("CertIssuerName")
+    cert_serial_number: str = _event_field("CertSerialNumber")
+    cert_thumbprint: str = _event_field("CertThumbprint")
+
+
 class Event4776Data(Definition):
     """Full version 0 payload for NTLM credential validation."""
 
@@ -154,7 +170,12 @@ class Event4776Data(Definition):
 
 
 WindowsEventData = (
-    Event4624Data | Event4625Data | Event4768Data | Event4769Data | Event4776Data
+    Event4624Data
+    | Event4625Data
+    | Event4768Data
+    | Event4769Data
+    | Event4771Data
+    | Event4776Data
 )
 
 
@@ -215,6 +236,15 @@ WINDOWS_SECURITY_2025_01 = WindowsSecurityEventProfile(
             opcode=0,
             keywords="0x8020000000000000",
             payload_type=Event4769Data,
+        ),
+        4771: WindowsEventMetadata(
+            event_id=4771,
+            version=0,
+            level=0,
+            task=14339,
+            opcode=0,
+            keywords="0x8010000000000000",
+            payload_type=Event4771Data,
         ),
         4776: WindowsEventMetadata(
             event_id=4776,

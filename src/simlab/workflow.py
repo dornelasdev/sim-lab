@@ -19,6 +19,7 @@ from simlab.artifacts import (
 )
 from simlab.authentication import AuthenticationScenario, load_authentication_scenario
 from simlab.definition import read_yaml
+from simlab.detection import describe_password_spray_coverage
 from simlab.environment import load_environment
 from simlab.storage import model_digest
 from simlab.wazuh import WazuhReplayBundle, export_wazuh_replay
@@ -116,6 +117,7 @@ class TelemetryInspection:
 
     overview: TelemetryOverview
     events: tuple[TelemetryEventView, ...]
+    reference_detection_coverage: str
 
 
 _FOCUSED_FIELDS = {
@@ -159,6 +161,16 @@ _FOCUSED_FIELDS = {
         "TicketEncryptionType",
         "IpAddress",
         "LogonGuid",
+    ),
+    4771: (
+        "TargetUserName",
+        "TargetSid",
+        "ServiceName",
+        "Status",
+        "PreAuthType",
+        "IpAddress",
+        "IpPort",
+        "TicketOptions",
     ),
     4776: (
         "TargetUserName",
@@ -263,7 +275,11 @@ def inspect_telemetry_bundle(path: str | Path) -> TelemetryInspection:
         started_at=min(occurred_at) if occurred_at else None,
         ended_at=max(occurred_at) if occurred_at else None,
     )
-    return TelemetryInspection(overview=overview, events=events)
+    return TelemetryInspection(
+        overview=overview,
+        events=events,
+        reference_detection_coverage=describe_password_spray_coverage(bundle),
+    )
 
 
 def resolve_telemetry_definition_context(
@@ -427,7 +443,7 @@ def _field_origin(record: AuthenticationArtifactRecord, path: str) -> str:
 
 
 def _protocol_label(event_id: int) -> str:
-    if event_id in {4768, 4769}:
+    if event_id in {4768, 4769, 4771}:
         return "Kerberos"
     if event_id == 4776:
         return "NTLM"

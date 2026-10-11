@@ -1495,6 +1495,9 @@ class SimLabApp(App[None]):
         return "\n".join(
             (
                 f"{profile.name} ({profile.id})",
+                self.inspection.reference_detection_coverage
+                if self.inspection is not None
+                else "Coverage: NTLM only; Kerberos activity is not assessed.",
                 f"Finding type: {profile.finding_type}",
                 f"Threshold: {profile.minimum_distinct_users} distinct users within "
                 f"{profile.window_seconds}s ({profile.window_mode} window)",
@@ -1558,8 +1561,16 @@ class SimLabApp(App[None]):
             f"Path: {path}",
             f"Findings: {len(findings)}",
         ]
+        if self.inspection is not None:
+            lines.append(self.inspection.reference_detection_coverage)
         if not findings:
-            lines.extend(("", "No finding met the selected profile thresholds."))
+            lines.extend(
+                (
+                    "",
+                    "Zero findings do not establish that activity is benign; "
+                    "interpret them within the coverage stated above.",
+                )
+            )
             return "\n".join(lines)
 
         for finding in findings:

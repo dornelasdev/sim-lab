@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from simlab.cli import main
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +55,16 @@ def test_returns_error_for_missing_definition(tmp_path, capsys) -> None:
     assert output.err.startswith("error: ")
 
 
-def test_detects_authentication_bundle_from_cli(tmp_path, capsys) -> None:
+@pytest.mark.parametrize(
+    ("route_name", "coverage"),
+    [
+        ("password-spray.yaml", "Within event-family coverage: 6/6"),
+        ("kerberos-logon-failure.yaml", "Not assessed:"),
+    ],
+)
+def test_detects_authentication_bundle_from_cli(
+    tmp_path, capsys, route_name, coverage
+) -> None:
     telemetry_root = tmp_path / "telemetry"
     analysis_root = tmp_path / "analyses"
     assert (
@@ -64,7 +75,7 @@ def test_detects_authentication_bundle_from_cli(tmp_path, capsys) -> None:
                 "--environment",
                 str(ENVIRONMENT_PATH),
                 "--route",
-                str(SPRAY_ROUTE_PATH),
+                str(ROUTE_PATH.parent / route_name),
                 "--output-root",
                 str(telemetry_root),
             ]
@@ -88,6 +99,7 @@ def test_detects_authentication_bundle_from_cli(tmp_path, capsys) -> None:
     detection_output = capsys.readouterr()
     assert detection_output.err == ""
     assert detection_output.out.startswith("created: ")
+    assert coverage in detection_output.out
 
 
 def test_exports_wazuh_replay_from_cli(tmp_path, capsys) -> None:

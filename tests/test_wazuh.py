@@ -95,6 +95,16 @@ def test_provenance_maps_each_replay_line_to_one_source_event(tmp_path) -> None:
     assert len({item.replay_record_id for item in loaded.provenance}) == 6
 
 
+def test_kerberos_route_export_does_not_claim_full_coverage(tmp_path) -> None:
+    _, replay = _export(tmp_path, "kerberos-logon-failure.yaml")
+    loaded = load_wazuh_replay_bundle(replay.path)
+    assert replay.manifest.source_event_count == 2
+    assert replay.manifest.exported_event_count == 1
+    assert replay.manifest.omitted_event_count == 1
+    assert loaded.events[0]["win"]["system"]["eventID"] == "4625"
+    assert loaded.events[0]["win"]["eventdata"]["logonType"] == "2"
+
+
 def test_negative_control_exports_repeated_failures_for_only_one_user(
     tmp_path,
 ) -> None:

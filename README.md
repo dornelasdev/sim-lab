@@ -14,11 +14,12 @@ for SOC operations, adversary emulation, cryptography, and red-team scenarios.
 
 - Corporate domain with a domain controller, workstation, and SMB file server.
 - Fresh Kerberos interactive logon producing events 4768, 4769, and 4624.
+- Failed Kerberos interactive logon producing 4771 on DC01 and 4625 on WS01.
 - NTLM password spray over SMB producing event 4776 on the domain controller
   and 4625 on the file server.
 - Versioned Windows Security event schemas and native Event XML serialization.
 - Content-addressed JSONL and XML bundles with reproducibility metadata.
-- Reference password-spray detection over independent 4776 and 4625 signals.
+- Reference NTLM password-spray detection over independent 4776 and 4625 signals.
 - Wazuh EventChannel replay exports and native password-spray rules.
 - Host audit policies controlling which activity becomes observable.
 - Scenario expectations validating generated event counts and locations.
@@ -32,6 +33,9 @@ profiles, not Windows defaults.
 
 Real systems may later supply sanitized reference telemetry for validation; they
 are not permanent runtime dependencies.
+
+The [failed Kerberos sign-in](docs/kerberos-logon-failure.md) documents its audit
+requirements, field assumptions, and current detection limits.
 
 ## Project layout
 
@@ -112,6 +116,11 @@ Analysis is stored separately under
 `outputs/analyses/<source-telemetry-id>/<analysis-id>/`. Its `findings.jsonl`
 contains analyst-facing hypotheses; `manifest.json` records the exact telemetry
 bundle and detection profile. Its `SHA256SUMS` covers both files.
+
+CLI and TUI detection views explain the reference profile's coverage. Kerberos
+activity is not assessed by this NTLM profile; zero findings do not imply benign
+activity. Coverage messaging is derived from event evidence, not stored as a new
+analysis schema field.
 
 Verify the exact stored files from inside either bundle:
 

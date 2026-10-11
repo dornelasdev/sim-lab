@@ -17,9 +17,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_modern_profile_contains_initial_event_schemas() -> None:
     profile = WINDOWS_SECURITY_2025_01
 
-    assert set(profile.schemas) == {4624, 4625, 4768, 4769, 4776}
+    assert set(profile.schemas) == {4624, 4625, 4768, 4769, 4771, 4776}
     assert profile.schemas[4768].version == 2
     assert profile.schemas[4769].version == 2
+    assert profile.schemas[4771].version == 0
+    assert profile.schemas[4771].task == 14339
+    assert profile.schemas[4771].keywords == "0x8010000000000000"
 
 
 def test_serializes_full_4776_event_to_windows_xml() -> None:
