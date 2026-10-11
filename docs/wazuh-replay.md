@@ -3,6 +3,11 @@
 SimLab uses a temporary Wazuh manager to evaluate exported Windows telemetry.
 The indexer, dashboard, and agents are intentionally outside this workflow.
 
+This is the current rule-evaluation stage of the
+[SOC L1 password-spray exercise](soc-l1-password-spray.md). Dashboard ingestion
+and investigation will be added in a separate implementation section.
+SimLab reference analysis is optional; exports use the original telemetry.
+
 ## Security model
 
 The two Wazuh alerts are independent observations:
@@ -14,7 +19,8 @@ Each rule requires three different target usernames from the same observed
 source within 60 seconds. The level-1 rules qualify bad-password NTLM failures
 but use `no_log`, so only the level-10 spray signal is analyst-facing. SimLab's
 reference detector remains responsible for merging the two observations into a
-single high-confidence finding.
+single high-confidence finding when that optional reference analysis is run.
+The Wazuh exercise treats the two alerts as evidence to investigate together.
 
 The rule chain is tested against Wazuh 4.14.7. Event 4625 inherits stock rule
 60122 (`Logon Failure - Unknown user or bad password`). Wazuh 4.14.7 has no

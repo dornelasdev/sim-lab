@@ -1,14 +1,19 @@
 # SimLab
 
-A lightweight, data-centered cybersecurity lab for deterministic scenarios and
-internally consistent security telemetry.
+A SOC L1 practice lab using reproducible simulated telemetry and real security
+tools, with Wazuh as the first integration.
 
 ## Scope
 
-SimLab models security-relevant infrastructure and activity without requiring
-the complete environment to run continuously. Initial development focuses on
-Active Directory authentication and Windows Security events, with later room
-for SOC operations, adversary emulation, cryptography, and red-team scenarios.
+Practice alert triage, event searches, evidence correlation, and escalation
+notes without running a complete Active Directory environment. SimLab supplies
+the scenario data; Wazuh supplies the rule evaluation and, once deployed, the
+analyst workspace.
+
+The current integration exports telemetry for a temporary Wazuh manager and
+`wazuh-logtest`. Dashboard ingestion and investigation are the next milestone.
+See the [password-spray exercise](docs/soc-l1-password-spray.md) for the available
+practice workflow and its limits.
 
 ## Current baseline
 
@@ -43,8 +48,9 @@ requirements, field assumptions, and current detection limits.
 environments/   Shared lab topology and audit policies
 routes/         Declarative security scenarios
 src/simlab/     Validation, telemetry generation, detection, and artifacts
-detections/     Versioned reference detection profiles
-integrations/   Optional platform-specific rules and runtime configuration
+detections/     Optional SimLab reference detection profiles
+integrations/   Wazuh rules and replay runtime configuration
+docs/           SOC exercises, tool workflows, and fidelity notes
 tests/          Behavioral and schema tests
 ```
 
@@ -61,7 +67,7 @@ uv sync
 ```bash
 uv run simlab generate authentication \
   --environment environments/corp-lab.yaml \
-  --route routes/ad-authentication/normal.yaml
+  --route routes/ad-authentication/password-spray.yaml
 ```
 
 Each content-addressed telemetry bundle under `outputs/<scenario-id>/` contains:
@@ -83,9 +89,13 @@ evidence.
 uv run simlab tui
 ```
 
-The full-screen terminal interface provides two entry paths: start a new
-simulation or inspect existing telemetry. A guarded sidebar guides the workflow
-through environment, route, acquisition, inspection, detection, and export.
+Start a new simulation or open existing telemetry. The main path is:
+
+**Environment → Route → Acquire → Inspect → Wazuh export**.
+
+Reference analysis is optional and remains accessible from Inspect or the
+sidebar. Export requires a verified telemetry bundle; no SimLab detection result
+is required. Export prepares files for the separate Wazuh replay workflow.
 
 Each page explains the relevant security context. Scenario expectations remain
 separate from verified telemetry and detection findings. Existing telemetry is
@@ -104,7 +114,22 @@ The interface displays the equivalent CLI commands for every available stage.
 Docker startup and `wazuh-logtest` remain in the separate workflow documented in
 [docs/wazuh-replay.md](docs/wazuh-replay.md).
 
-## Analyze authentication artifacts
+## Export to Wazuh
+
+```bash
+uv run simlab export wazuh \
+  --telemetry outputs/<scenario-id>/<telemetry-id>
+```
+
+The export contains Wazuh EventChannel input plus separate provenance linking
+every replay line to its SimLab event. A temporary manager-only Wazuh 4.14.7
+workflow and its positive and negative validation cases are documented in
+[docs/wazuh-replay.md](docs/wazuh-replay.md).
+
+## Optional reference analysis
+
+SimLab's reference detector is a supporting check. Its findings are separate
+from alerts produced by Wazuh's rules.
 
 ```bash
 uv run simlab detect authentication \
@@ -131,18 +156,6 @@ shasum -a 256 -c SHA256SUMS
 Manifest fields ending in `canonical_sha256` identify normalized validated
 definitions. They are semantic provenance digests, not raw file checksums.
 
-## Export to Wazuh
-
-```bash
-uv run simlab export wazuh \
-  --telemetry outputs/<scenario-id>/<telemetry-id>
-```
-
-The export contains Wazuh EventChannel input plus separate provenance linking
-every replay line to its SimLab event. A temporary manager-only Wazuh 4.14.7
-workflow and its positive and negative validation cases are documented in
-[docs/wazuh-replay.md](docs/wazuh-replay.md).
-
 ## Validation
 
 ```bash
@@ -154,4 +167,5 @@ uv run pytest
 ## Status
 
 Version 0.1 is under incremental development through small, reviewable routes
-and implementation sections.
+and implementation sections. The immediate goal is one complete Wazuh
+password-spray investigation, followed by additional SOC L1 exercises.

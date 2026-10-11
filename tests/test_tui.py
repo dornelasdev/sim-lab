@@ -54,7 +54,7 @@ def test_kerberos_workflow_explains_detection_coverage(tmp_path, existing) -> No
             assert app.selected_event.event_id == 4771
             assert '<Data Name="Status">0x18</Data>' in app.selected_event.xml
 
-            await pilot.click("#inspect-next")
+            await pilot.click("#inspect-detect")
             await pilot.pause()
             context = app.query_one("#detection-context", Static).content
             assert isinstance(context, Text)
@@ -111,7 +111,7 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             assert app.selected_event is not None
             assert app.selected_event.xml.startswith("<?xml")
             assert app.query_one("#nav-detect", Button).disabled is False
-            assert app.query_one("#nav-export", Button).disabled is True
+            assert app.query_one("#nav-export", Button).disabled is False
             assert app.query_one("#nav-inspect", Button).has_class("nav-active")
             assert app.query_one("#nav-acquire", Button).has_class("nav-done")
 
@@ -156,10 +156,35 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
 
             await pilot.click("#inspect-next")
             await pilot.pause()
+            assert app.active_stage is WorkflowStage.EXPORT
+            assert app.query_one("#export-wazuh", Button).disabled is False
+            commands = app.query_one("#commands", Static).content
+            assert isinstance(commands, Text)
+            assert "simlab export wazuh" in commands.plain
+            assert "simlab detect" not in commands.plain
+            await pilot.click("#export-wazuh")
+            await pilot.pause()
+            assert app.wazuh_export_complete is True
+            assert app.analysis_complete is False
+            assert not (output_root / "analyses").exists()
+            export_content = app.query_one("#wazuh-result", Static).content
+            assert isinstance(export_content, Text)
+            assert "Exported events: 6" in export_content.plain
+            assert "Omitted events: 0" in export_content.plain
+
+            await pilot.click("#export-back")
+            await pilot.pause()
+            assert app.active_stage is WorkflowStage.INSPECT
+            assert app.inspection is inspection
+            await pilot.click("#inspect-detect")
+            await pilot.pause()
             detection_content = app.query_one("#detection-context", Static).content
             assert isinstance(detection_content, Text)
             detection_context = detection_content.plain
             assert "3 distinct users within 60s" in detection_context
+            commands = app.query_one("#commands", Static).content
+            assert isinstance(commands, Text)
+            assert "simlab detect authentication" in commands.plain
             await pilot.click("#detect")
             await pilot.pause()
 
@@ -177,6 +202,8 @@ def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
             await pilot.click("#new-analysis")
             await pilot.pause()
             assert app.analysis_complete is False
+            assert app.wazuh_export_complete is True
+            assert app.query_one("#nav-export", Button).disabled is False
             assert app.inspection.overview.path == telemetry_path
             assert app.query_one("#profile-picker").display is True
             assert app.query_one("#profile-select", Select).disabled is False
@@ -216,6 +243,7 @@ def test_opens_existing_telemetry_with_recorded_definition_context(tmp_path) -> 
             assert app.mode is WorkflowMode.EXISTING
             assert app.active_stage is WorkflowStage.ACQUIRE
             assert app.query_one("#nav-environment", Button).disabled is True
+            assert app.query_one("#nav-export", Button).disabled is True
 
             telemetry = app.query_one("#telemetry-select", Select)
             telemetry.value = str(generated.path.resolve())
@@ -231,6 +259,21 @@ def test_opens_existing_telemetry_with_recorded_definition_context(tmp_path) -> 
             )
             assert app.definition_context.scenario.status is DefinitionStatus.MATCHING
             assert app.query_one("#nav-environment", Button).disabled is False
+            assert app.query_one("#nav-export", Button).disabled is False
+
+            inspection = app.inspection
+            await pilot.click("#inspect-next")
+            await pilot.pause()
+            assert app.active_stage is WorkflowStage.EXPORT
+            await pilot.click("#export-wazuh")
+            await pilot.pause()
+            assert app.wazuh_export_complete is True
+            assert app.analysis_complete is False
+            assert not (output_root / "analyses").exists()
+            await pilot.click("#export-back")
+            await pilot.pause()
+            assert app.active_stage is WorkflowStage.INSPECT
+            assert app.inspection is inspection
 
             await pilot.click("#nav-environment")
             await pilot.pause()
@@ -286,6 +329,7 @@ def test_acquired_telemetry_requires_restart_to_change_simulation(tmp_path) -> N
             assert app.query_one("#environment-picker").display is True
             assert app.query_one("#environment-select", Select).disabled is False
             assert app.query_one("#nav-inspect", Button).disabled is True
+            assert app.query_one("#nav-export", Button).disabled is True
             assert telemetry_path.exists()
 
     asyncio.run(exercise())

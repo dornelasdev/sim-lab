@@ -103,7 +103,9 @@ GUIDE_CONTENT: dict[WorkflowStage | None, tuple[str, str]] = {
         (
             "Purpose\n"
             "Choose whether SimLab should generate deterministic telemetry from "
-            "local definitions or inspect an existing telemetry artifact.\n\n"
+            "local definitions or inspect an existing telemetry artifact for "
+            "SOC practice. Inspect the evidence, then export it for Wazuh replay. "
+            "The reference check is optional.\n\n"
             "New simulation\n"
             "Builds context from an environment and authentication route before "
             "acquiring telemetry.\n\n"
@@ -183,11 +185,12 @@ GUIDE_CONTENT: dict[WorkflowStage | None, tuple[str, str]] = {
         ),
     ),
     WorkflowStage.DETECT: (
-        "Detection guide",
+        "Reference analysis guide (optional)",
         (
             "Purpose\n"
-            "Evaluate inspected telemetry using observable conditions from a "
-            "detection profile.\n\n"
+            "Optionally evaluate inspected telemetry using SimLab's reference "
+            "profile. Export is available without this check. Wazuh evaluates "
+            "its own rules during replay.\n\n"
             "What to examine\n"
             "Review the profile signals, grouping fields, threshold, and time "
             "window before running it. Detection intentionally does not use "
@@ -204,7 +207,9 @@ GUIDE_CONTENT: dict[WorkflowStage | None, tuple[str, str]] = {
         (
             "Purpose\n"
             "Adapt supported stored Windows events into replay artifacts for the "
-            "separate Wazuh runtime workflow.\n\n"
+            "separate Wazuh runtime workflow. No reference analysis is required. "
+            "For the password-spray exercise, follow "
+            "docs/soc-l1-password-spray.md.\n\n"
             "What to examine\n"
             "Confirm the supported and omitted event counts, target manager "
             "version, and representation status. Export does not start Docker, "
@@ -220,9 +225,14 @@ STAGE_ORDER = (
     WorkflowStage.ROUTE,
     WorkflowStage.ACQUIRE,
     WorkflowStage.INSPECT,
-    WorkflowStage.DETECT,
     WorkflowStage.EXPORT,
+    WorkflowStage.DETECT,
 )
+
+STAGE_LABELS = {
+    WorkflowStage.EXPORT: "Wazuh export",
+    WorkflowStage.DETECT: "Ref. (optional)",
+}
 
 
 class GuideScreen(ModalScreen[None]):
@@ -291,7 +301,7 @@ class SimLabApp(App[None]):
     """Guide one authentication workflow through explicit observable stages."""
 
     TITLE = "SimLab"
-    SUB_TITLE = "Guided authentication workflow"
+    SUB_TITLE = "SOC practice · Wazuh replay"
     BINDINGS = [("q", "quit", "Quit"), ("g", "toggle_guide", "Guide")]
     CSS_PATH = "simlab.tcss"
 
@@ -329,8 +339,8 @@ class SimLabApp(App[None]):
             with VerticalScroll(id="welcome-page"), Vertical(id="welcome-card"):
                 yield Static("Start a SimLab workflow", classes="welcome-title")
                 yield Static(
-                    "Generate a new deterministic simulation or inspect an "
-                    "existing telemetry bundle with its recorded provenance.",
+                    "Prepare simulated security telemetry for SOC practice in "
+                    "Wazuh. Start a new scenario or open an existing bundle.",
                     markup=False,
                 )
                 yield Button(
@@ -349,7 +359,7 @@ class SimLabApp(App[None]):
                     yield Static("Workflow", id="sidebar-title")
                     for stage in STAGE_ORDER:
                         yield Button(
-                            stage.value.title(),
+                            STAGE_LABELS.get(stage, stage.value.title()),
                             id=f"nav-{stage.value}",
                             classes="stage-button",
                             disabled=True,
@@ -524,18 +534,25 @@ class SimLabApp(App[None]):
                             with Horizontal(classes="page-actions"):
                                 yield Button("Back", id="inspect-back")
                                 yield Button(
-                                    "Next: Detect",
+                                    "Next: Export",
                                     id="inspect-next",
                                     variant="primary",
+                                )
+                                yield Button(
+                                    "Reference check",
+                                    id="inspect-detect",
                                 )
 
                         with Vertical(id="detect-page", classes="workflow-page"):
                             with VerticalScroll(id="detect-scroll"):
-                                yield Static("Detect behavior", classes="page-title")
                                 yield Static(
-                                    "A detection profile describes observable "
-                                    "conditions. It does not use SimLab ground-truth "
-                                    "correlation.",
+                                    "Reference analysis (optional)",
+                                    classes="page-title",
+                                )
+                                yield Static(
+                                    "SimLab's reference profile checks observable "
+                                    "conditions. You can export directly and "
+                                    "evaluate Wazuh's rules in the replay workflow.",
                                     classes="guidance",
                                     markup=False,
                                 )
@@ -572,7 +589,7 @@ class SimLabApp(App[None]):
                                     "New analysis",
                                     id="new-analysis",
                                 )
-                                yield Button("Next: Export", id="detect-next")
+                                yield Button("Wazuh export", id="detect-next")
 
                         with Vertical(id="export-page", classes="workflow-page"):
                             yield Static("Export for Wazuh", classes="page-title")
@@ -771,6 +788,10 @@ class SimLabApp(App[None]):
 
     @on(Button.Pressed, "#inspect-next")
     def inspect_next(self) -> None:
+        self._show_stage(WorkflowStage.EXPORT)
+
+    @on(Button.Pressed, "#inspect-detect")
+    def inspect_detect(self) -> None:
         self._show_stage(WorkflowStage.DETECT)
 
     @on(Button.Pressed, "#detect-back")
@@ -824,7 +845,7 @@ class SimLabApp(App[None]):
 
     @on(Button.Pressed, "#export-back")
     def export_back(self) -> None:
-        self._show_stage(WorkflowStage.DETECT)
+        self._show_stage(WorkflowStage.INSPECT)
 
     @on(Button.Pressed, "#export-wazuh")
     def export_wazuh(self) -> None:
@@ -854,6 +875,7 @@ class SimLabApp(App[None]):
                 "",
                 "Docker and wazuh-logtest remain a separate runtime workflow.",
                 "See docs/wazuh-replay.md for the validated commands.",
+                "SOC exercise: docs/soc-l1-password-spray.md",
             )
         )
         self.query_one("#wazuh-result", Static).update(Text(result))
@@ -1189,6 +1211,7 @@ class SimLabApp(App[None]):
                         "Representation: derived pending observed fixture",
                         "Manager ingestion time controls Wazuh frequency windows.",
                         "Docker and wazuh-logtest remain a separate workflow.",
+                        "Password-spray exercise: docs/soc-l1-password-spray.md",
                     )
                 )
             )
@@ -1601,8 +1624,6 @@ class SimLabApp(App[None]):
             return False
         if self.mode is WorkflowMode.EXISTING and stage is WorkflowStage.ACQUIRE:
             return True
-        if self.mode is WorkflowMode.EXISTING and stage is WorkflowStage.EXPORT:
-            return self.analysis_complete or self.wazuh_export_complete
         if self.mode is WorkflowMode.EXISTING:
             return self.inspection is not None
         availability = {
@@ -1611,9 +1632,7 @@ class SimLabApp(App[None]):
             WorkflowStage.ACQUIRE: self.route_path is not None,
             WorkflowStage.INSPECT: self.inspection is not None,
             WorkflowStage.DETECT: self.inspection is not None,
-            WorkflowStage.EXPORT: (
-                self.analysis_complete or self.wazuh_export_complete
-            ),
+            WorkflowStage.EXPORT: self.inspection is not None,
         }
         return availability[stage]
 
@@ -1659,8 +1678,10 @@ class SimLabApp(App[None]):
             button.variant = "default"
             for candidate in state_markers:
                 button.set_class(candidate == state, f"nav-{candidate}")
-            button.label = f"{state_markers[state]} {index} {stage.value.title()}"
-            button.tooltip = f"{stage.value.title()}: {state}"
+            label = STAGE_LABELS.get(stage, stage.value.title())
+            number = "" if stage is WorkflowStage.DETECT else f"{index} "
+            button.label = f"{state_markers[state]} {number}{label}"
+            button.tooltip = f"{label}: {state}"
             button.disabled = not available
 
         existing = self.mode is WorkflowMode.EXISTING
@@ -1685,11 +1706,13 @@ class SimLabApp(App[None]):
         self.query_one("#detect", Button).disabled = not (
             self.inspection is not None and profile_selected
         )
-        self.query_one("#detect-next", Button).disabled = not self.analysis_complete
-        self.query_one("#export-wazuh", Button).disabled = not (
-            self.inspection is not None
-            and (self.analysis_complete or self.wazuh_export_complete)
-        )
+        for button_id in (
+            "inspect-next",
+            "inspect-detect",
+            "detect-next",
+            "export-wazuh",
+        ):
+            self.query_one(f"#{button_id}", Button).disabled = self.inspection is None
         self.query_one("#findings").set_class(
             self.analysis_complete,
             "has-output",
@@ -1727,7 +1750,11 @@ class SimLabApp(App[None]):
             )
         profile = self._selected_path("#profile-select")
         telemetry = self._inspected_path()
-        if telemetry is not None and profile is not None:
+        if (
+            telemetry is not None
+            and profile is not None
+            and self.active_stage is WorkflowStage.DETECT
+        ):
             commands.append(
                 shell_join(
                     (

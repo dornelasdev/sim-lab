@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sim-lab"
 version = "0.1.0"
-description = "A lightweight, data-centered cybersecurity laboratory"
+description = "A SOC practice lab with reproducible simulated security telemetry"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
