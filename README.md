@@ -1,160 +1,92 @@
 # SimLab
 
-A SOC L1 practice lab using reproducible simulated telemetry and real security
-tools, with Wazuh as the first integration.
-
-## Scope
-
-Practice alert triage, event searches, evidence correlation, and escalation
-notes without running a complete Active Directory environment. SimLab supplies
-the scenario data; Wazuh supplies the rule evaluation and, once deployed, the
-analyst workspace.
-
-The current integration exports telemetry for a temporary Wazuh manager and
-`wazuh-logtest`. Dashboard ingestion and investigation are the next milestone.
-See the [password-spray exercise](docs/soc-l1-password-spray.md) for the available
-practice workflow and its limits.
-
-## Current baseline
-
-- Corporate domain with a domain controller, workstation, and SMB file server.
-- Fresh Kerberos interactive logon producing events 4768, 4769, and 4624.
-- Failed Kerberos interactive logon producing 4771 on DC01 and 4625 on WS01.
-- NTLM password spray over SMB producing event 4776 on the domain controller
-  and 4625 on the file server.
-- Versioned Windows Security event schemas and native Event XML serialization.
-- Content-addressed JSONL and XML bundles with reproducibility metadata.
-- Reference NTLM password-spray detection over independent 4776 and 4625 signals.
-- Wazuh EventChannel replay exports and native password-spray rules.
-- Host audit policies controlling which activity becomes observable.
-- Scenario expectations validating generated event counts and locations.
-
-## Fidelity
-
-Generated values are classified as documented, derived, synthetic, or
-unavailable. Timestamps, record IDs, client ports, and simulation correlation
-identifiers are deterministic. The included audit policies are SimLab monitoring
-profiles, not Windows defaults.
-
-Real systems may later supply sanitized reference telemetry for validation; they
-are not permanent runtime dependencies.
-
-The [failed Kerberos sign-in](docs/kerberos-logon-failure.md) documents its audit
-requirements, field assumptions, and current detection limits.
-
-## Project layout
-
-```text
-environments/   Shared lab topology and audit policies
-routes/         Declarative security scenarios
-src/simlab/     Validation, telemetry generation, detection, and artifacts
-detections/     Optional SimLab reference detection profiles
-integrations/   Wazuh rules and replay runtime configuration
-docs/           SOC exercises, tool workflows, and fidelity notes
-tests/          Behavioral and schema tests
-```
+A SOC L1 practice lab with reproducible simulated Windows telemetry and real
+Wazuh rule-test evaluation. Practice alert triage, evidence correlation, and
+assessment without running a complete Active Directory environment.
 
 ## Setup
 
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and Docker Desktop for
+preparing a case. Reviewing saved investigations does not require Docker.
 
 ```bash
 uv sync
-```
-
-## Generate authentication artifacts
-
-```bash
-uv run simlab generate authentication \
-  --environment environments/corp-lab.yaml \
-  --route routes/ad-authentication/password-spray.yaml
-```
-
-Each content-addressed telemetry bundle under `outputs/<scenario-id>/` contains:
-
-```text
-manifest.json   Scenario, environment, profile, policy, and artifact context
-events.jsonl    Self-contained event records with SimLab provenance
-xml/            Matching native Windows Event XML files
-SHA256SUMS      Exact SHA-256 checksums for every file above
-```
-
-The manifest's source-host aliases are a derived environment snapshot used to
-resolve hostname and IP observations. They are analysis context, not event
-evidence.
-
-## Guided terminal workflow
-
-```bash
+docker compose -f integrations/wazuh/compose.yaml up -d
 uv run simlab tui
 ```
 
-Start a new simulation or open existing telemetry. The main path is:
+## Investigation workflow
 
-**Environment → Route → Acquire → Inspect → Wazuh export**.
+Choose **Start investigation → Prepare case → Open investigation**.
 
-Reference analysis is optional and remains accessible from Inspect or the
-sidebar. Export requires a verified telemetry bundle; no SimLab detection result
-is required. Export prepares files for the separate Wazuh replay workflow.
+The first exercise combines repeated single-account failures, a successful
+interactive logon, and a suspected NTLM password spray. Preparation supplies
+15 Windows events and collects two independent matches from the real Wazuh
+4.14.7 engine. Generation and submission happen behind the interface; no manual
+export or log pasting is needed.
 
-Each page explains the relevant security context. Scenario expectations remain
-separate from verified telemetry and detection findings. Existing telemetry is
-inspectable from its recorded manifest even when its local environment or route
-definition has changed or is unavailable.
+Work through **Alert → Evidence → Context → Assessment**:
 
-Open the stage-aware Guide with its visible control or the `g` key. The Guide is
-read-only, and `g` or Escape closes it without changing workflow state.
+- Review each Wazuh match and its supporting events.
+- Filter evidence by time, account, observer host, source IP, or event ID.
+- Use inventory context and Windows event-ID notes to guide investigative pivots.
+- Select evidence and save your reasoning as a separate assessment and report.
 
-Environment and route choices become read-only provenance after telemetry is
-acquired. Starting a new simulation resets only the TUI workflow. Detection
-profiles similarly lock to their result; a new analysis can reuse the same
-telemetry without modifying previous artifacts.
+Choose **Open prepared investigation** to resume without preparing again.
+Saved evidence and engine results are read-only. Reopening the same evaluation
+restores its latest saved assessment; changed saves retain earlier snapshots.
 
-The interface displays the equivalent CLI commands for every available stage.
-Docker startup and `wazuh-logtest` remain in the separate workflow documented in
-[docs/wazuh-replay.md](docs/wazuh-replay.md).
-
-## Export to Wazuh
+For command-line preparation:
 
 ```bash
-uv run simlab export wazuh \
-  --telemetry outputs/<scenario-id>/<telemetry-id>
+uv run simlab prepare password-spray
 ```
 
-The export contains Wazuh EventChannel input plus separate provenance linking
-every replay line to its SimLab event. A temporary manager-only Wazuh 4.14.7
-workflow and its positive and negative validation cases are documented in
-[docs/wazuh-replay.md](docs/wazuh-replay.md).
-
-## Optional reference analysis
-
-SimLab's reference detector is a supporting check. Its findings are separate
-from alerts produced by Wazuh's rules.
+Docker startup/shutdown stays manual. When finished evaluating:
 
 ```bash
-uv run simlab detect authentication \
-  --telemetry outputs/<scenario-id>/<telemetry-id> \
-  --profile detections/authentication/password-spray.yaml
+docker compose -f integrations/wazuh/compose.yaml down
 ```
 
-Analysis is stored separately under
-`outputs/analyses/<source-telemetry-id>/<analysis-id>/`. Its `findings.jsonl`
-contains analyst-facing hypotheses; `manifest.json` records the exact telemetry
-bundle and detection profile. Its `SHA256SUMS` covers both files.
+See [first investigation](docs/first-investigation.md) for the timeline,
+expected results, filtering, runtime boundaries, and reporting behavior.
 
-CLI and TUI detection views explain the reference profile's coverage. Kerberos
-activity is not assessed by this NTLM profile; zero findings do not imply benign
-activity. Coverage messaging is derived from event evidence, not stored as a new
-analysis schema field.
+## Fidelity and limits
 
-Verify the exact stored files from inside either bundle:
+Windows events are simulated, not captured endpoint evidence. Values are
+classified as documented, derived, synthetic, or unavailable. Host audit policies
+are lab monitoring profiles, not Windows defaults.
 
-```bash
-shasum -a 256 -c SHA256SUMS
+Wazuh results come from its real rule-test engine, not persisted dashboard
+alerts. Only the 12 NTLM failure records are evaluated; the three successful
+Kerberos/logon records remain context. The test-only JSON decoder adaptation is
+not suitable for live Windows-agent ingestion. There is no local-detector
+fallback when evaluation fails.
+
+Saved recommendations do not create real tickets or perform endpoint response.
+Unavailable evidence is explicit; the exercise does not supply a verified
+normal-activity baseline or prove compromise.
+
+## Layout
+
+```text
+environments/   Lab inventory and audit policies
+routes/         Authentication inputs used by the first case
+src/simlab/     Case preparation, Wazuh evaluation, investigation UI, reports
+integrations/   Pinned Wazuh manager, rules, and evaluation bridge
+docs/           Investigation walkthrough, event reference, and rework scope
+tests/          Behavior, integrity, UI, and fidelity checks
+outputs/        Saved cases, evaluations, and reports (Git-ignored)
 ```
 
-Manifest fields ending in `canonical_sha256` identify normalized validated
-definitions. They are semantic provenance digests, not raw file checksums.
+The active CLI exposes only `tui` and `prepare password-spray`.
+Failed-Kerberos generator coverage remains under `tests/fixtures/`; it is not
+another selectable investigation.
+
+Cases, evaluations, and analyst assessments are generated locally, not shipped
+with the project. A fresh checkout starts with no saved investigations. Prepare
+the first case through the TUI or CLI. `outputs/` and `local-notes/` are Git-ignored;
+personal exercise notes and saved answers are not required to run the lab.
 
 ## Validation
 
@@ -166,6 +98,5 @@ uv run pytest
 
 ## Status
 
-Version 0.1 is under incremental development through small, reviewable routes
-and implementation sections. The immediate goal is one complete Wazuh
-password-spray investigation, followed by additional SOC L1 exercises.
+The first end-to-end SOC investigation is implemented. Final validation and
+PR review precede v0.1; see [rework scope](docs/soc-rework.md).

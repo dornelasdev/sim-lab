@@ -1,0 +1,245 @@
+InvestigationScreen {
+    background: $background;
+    color: $text;
+}
+
+#investigation-content, #case-workspace, #case-tabs {
+    height: 1fr;
+}
+
+#case-picker {
+    padding: 3 4;
+    align: center middle;
+}
+
+#case-picker-card {
+    width: 100;
+    max-width: 100%;
+    height: auto;
+    padding: 1 2;
+}
+
+#case-select {
+    margin-top: 1;
+}
+
+#case-picker-status {
+    height: auto;
+    margin: 1 0;
+}
+
+#case-workspace {
+    padding: 0 2;
+}
+
+#case-tabs Tabs {
+    height: 2;
+    background: $background;
+    border-bottom: ascii $border-blurred;
+}
+
+#case-tabs Tab {
+    color: $action-color;
+    background: $background;
+    border-left: blank $background;
+    border-right: ascii $border-blurred;
+    text-style: bold;
+}
+
+#case-tabs Tab.-active {
+    color: $accent;
+    text-style: bold;
+}
+
+#case-tabs Tab:hover {
+    color: $action-focus-color;
+    text-style: underline;
+}
+
+#case-tabs Tabs:focus Tab.-active {
+    color: $action-focus-color;
+    border-left: ascii $accent;
+    text-style: bold;
+}
+
+#case-tabs Underline {
+    display: none;
+}
+
+#case-toolbar, .case-filter-row, .case-actions {
+    height: 1;
+}
+
+#case-toolbar, .case-filter-row {
+    margin-bottom: 1;
+}
+
+#case-toolbar Button, .case-actions Button {
+    margin-right: 1;
+}
+
+#case-alert-select {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#case-context, #case-selection-status {
+    height: auto;
+    color: $text-muted;
+    margin: 1 0;
+}
+
+#case-filters {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#case-filter-status {
+    height: auto;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#case-alert-scroll, #case-brief-scroll {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#case-brief, #case-alert-details {
+    height: auto;
+    padding: 1 2;
+}
+
+.case-filter-row Input, .case-filter-row Select {
+    width: 1fr;
+    margin-right: 1;
+}
+
+.case-actions Checkbox {
+    width: auto;
+    margin-right: 1;
+}
+
+#case-evidence-body {
+    height: 1fr;
+    min-height: 8;
+}
+
+#case-event-table {
+    width: 3fr;
+    height: 1fr;
+}
+
+#case-event-table > .datatable--header {
+    color: $title-color;
+    background: $background;
+    text-style: bold;
+}
+
+#case-event-table:focus,
+#case-filters:focus-within,
+#case-detail-panel:focus-within,
+#assessment-form:focus-within {
+    border: ascii $accent;
+    background-tint: transparent;
+}
+
+#case-event-table:focus > .datatable--header {
+    background-tint: transparent;
+}
+
+#case-event-table > .datatable--hover,
+#case-event-table > .datatable--header-hover {
+    color: $action-focus-color;
+    background: $background;
+    text-style: underline;
+}
+
+#case-event-table > .datatable--cursor {
+    color: $text;
+    background: $background;
+    text-style: reverse;
+}
+
+#case-event-table:focus > .datatable--cursor {
+    color: $text;
+    background: $background;
+    text-style: bold reverse;
+}
+
+#case-event-table > .datatable--header-cursor {
+    color: $text;
+    background: $background;
+    text-style: bold reverse;
+}
+
+#case-detail-panel {
+    width: 2fr;
+    height: 1fr;
+    margin-left: 1;
+    padding: 0 1;
+}
+
+#case-event-scroll {
+    height: 1fr;
+}
+
+#case-event-details {
+    height: auto;
+    padding: 1 0;
+}
+
+#case-pin {
+    width: 1fr;
+}
+
+#assessment-form {
+    height: 1fr;
+    padding: 0 1;
+}
+
+.assessment-guidance, #assessment-draft-status, #assessment-status {
+    height: auto;
+    color: $text-muted;
+    margin: 0 0 1 0;
+}
+
+.assessment-label {
+    height: auto;
+    margin-top: 1;
+    color: $title-color;
+    text-style: bold;
+}
+
+.assessment-note {
+    height: 5;
+    background: $background;
+    border: none;
+    border-left: blank $background;
+}
+
+.assessment-note:hover {
+    border-left: blank $background;
+}
+
+.assessment-note:focus {
+    border-left: ascii $accent;
+}
+
+AssessmentExitScreen {
+    align: center middle;
+    background: $background;
+}
+
+#assessment-exit-dialog {
+    width: 76;
+    max-width: 95%;
+    height: auto;
+    padding: 1 2;
+    border: ascii $warning;
+}
+
+#assessment-exit-dialog .case-actions {
+    margin-top: 1;
+}

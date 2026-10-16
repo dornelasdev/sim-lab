@@ -25,6 +25,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--ignore=old"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simlab"]
@@ -32,6 +33,7 @@ packages = ["src/simlab"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+extend-exclude = ["old"]
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "SIM", "UP"]
