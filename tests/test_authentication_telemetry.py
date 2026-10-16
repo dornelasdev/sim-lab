@@ -22,6 +22,9 @@ from simlab.telemetry.windows_security import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT_PATH = PROJECT_ROOT / "environments" / "corp-lab.yaml"
 ROUTE_PATH = PROJECT_ROOT / "routes" / "ad-authentication"
+FAILED_KERBEROS_ROUTE = (
+    Path(__file__).parent / "fixtures" / "kerberos-logon-failure.yaml"
+)
 
 
 @pytest.fixture
@@ -102,11 +105,13 @@ def test_generates_ntlm_spray_on_authority_and_destination(environment) -> None:
     assert telemetry.events[1].event.computer == "FS01.corp.lab"
 
 
-@pytest.mark.parametrize("route_name", ["normal.yaml", "kerberos-logon-failure.yaml"])
+@pytest.mark.parametrize(
+    "route_path", [ROUTE_PATH / "normal.yaml", FAILED_KERBEROS_ROUTE]
+)
 def test_generation_is_deterministic_and_xml_compatible(
-    environment, route_name
+    environment, route_path
 ) -> None:
-    scenario = load_authentication_scenario(ROUTE_PATH / route_name, environment)
+    scenario = load_authentication_scenario(route_path, environment)
 
     first = generate_authentication_telemetry(scenario, environment)
     second = generate_authentication_telemetry(scenario, environment)
@@ -140,13 +145,13 @@ def test_host_audit_policy_controls_observability() -> None:
 
 
 @pytest.mark.parametrize(
-    "route_name", ["password-spray.yaml", "kerberos-logon-failure.yaml"]
+    "route_path", [ROUTE_PATH / "password-spray.yaml", FAILED_KERBEROS_ROUTE]
 )
 def test_every_windows_field_has_exactly_one_provenance_origin(
-    environment, route_name
+    environment, route_path
 ) -> None:
     scenario = load_authentication_scenario(
-        ROUTE_PATH / route_name,
+        route_path,
         environment,
     )
 
@@ -166,9 +171,7 @@ def test_every_windows_field_has_exactly_one_provenance_origin(
 
 
 def test_failed_interactive_logon_stops_before_ticket_issuance(environment) -> None:
-    scenario = load_authentication_scenario(
-        ROUTE_PATH / "kerberos-logon-failure.yaml", environment
-    )
+    scenario = load_authentication_scenario(FAILED_KERBEROS_ROUTE, environment)
     telemetry = generate_authentication_telemetry(scenario, environment)
 
     assert [(item.event.event_id, item.host_id) for item in telemetry.events] == [
@@ -215,7 +218,7 @@ def test_failed_kerberos_observations_have_independent_audit_gates(
     setting = next(s for s in policy["settings"] if s["category"] == category)
     setting["outcomes"] = ["success"]
     environment = CorporateEnvironment.model_validate(environment_data)
-    scenario_data = deepcopy(read_yaml(ROUTE_PATH / "kerberos-logon-failure.yaml"))
+    scenario_data = deepcopy(read_yaml(FAILED_KERBEROS_ROUTE))
     scenario = AuthenticationScenario.model_validate(scenario_data)
 
     with pytest.raises(ValueError, match="does not match scenario expectations"):

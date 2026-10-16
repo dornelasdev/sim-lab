@@ -1,0 +1,34 @@
+PreparationScreen {
+    background: $background;
+    color: $text;
+}
+
+#preparation-page {
+    height: 1fr;
+    padding: 2 4;
+    align: center middle;
+}
+
+#preparation-card {
+    width: 120;
+    max-width: 100%;
+    height: auto;
+    padding: 1 2;
+}
+
+#preparation-brief, #preparation-runtime, #preparation-status {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#preparation-runtime {
+    color: $text-muted;
+}
+
+#preparation-actions {
+    height: 1;
+}
+
+#preparation-actions Button {
+    margin-right: 1;
+}

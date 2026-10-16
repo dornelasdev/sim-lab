@@ -1,14 +1,5 @@
-"""SimLab's public Python interface."""
+"""Shared simulation primitives retained by the SOC investigation flow."""
 
-from simlab.analysis import (
-    AuthenticationAnalysisBundle,
-    analyze_authentication_bundle,
-)
-from simlab.artifacts import (
-    AuthenticationArtifactBundle,
-    generate_authentication_bundle,
-    load_authentication_bundle,
-)
 from simlab.authentication import AuthenticationScenario, load_authentication_scenario
 from simlab.environment import CorporateEnvironment, load_environment
 from simlab.telemetry.authentication import (
@@ -17,15 +8,10 @@ from simlab.telemetry.authentication import (
 )
 
 __all__ = [
-    "AuthenticationAnalysisBundle",
-    "AuthenticationArtifactBundle",
     "AuthenticationScenario",
     "CorporateEnvironment",
     "GeneratedAuthenticationTelemetry",
-    "analyze_authentication_bundle",
-    "generate_authentication_bundle",
     "generate_authentication_telemetry",
-    "load_authentication_bundle",
     "load_authentication_scenario",
     "load_environment",
 ]

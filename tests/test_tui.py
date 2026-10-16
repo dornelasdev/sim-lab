@@ -2,334 +2,485 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from rich.text import Text
-from textual.widgets import Button, DataTable, Select, Static
+from textual.color import Color
+from textual.content import Content
+from textual.widgets import Button, OptionList, Select, Static, TabbedContent, TextArea
 
-from simlab.tui import GuideScreen, SimLabApp, WorkflowMode, WorkflowStage
-from simlab.workflow import DefinitionStatus, run_generation_stage
+from simlab.assessment import NOTE_LABELS, AssessmentNotes, save_assessment
+from simlab.investigation_tui import AssessmentExitScreen, InvestigationScreen
+from simlab.preparation_tui import PreparationScreen
+from simlab.tui import GuideScreen, SimLabApp
+from simlab.wazuh_evaluation import load_saved_investigation
+from tests.test_investigation_tui import prepared as prepared
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ENVIRONMENT_PATH = PROJECT_ROOT / "environments" / "corp-lab.yaml"
-ROUTE_PATH = PROJECT_ROOT / "routes" / "ad-authentication"
-SPRAY_ROUTE_PATH = ROUTE_PATH / "password-spray.yaml"
 
 
-@pytest.mark.parametrize("existing", [False, True])
-def test_kerberos_workflow_explains_detection_coverage(tmp_path, existing) -> None:
-    output_root = tmp_path / "outputs"
-    route_path = ROUTE_PATH / "kerberos-logon-failure.yaml"
-    generated = (
-        run_generation_stage(ENVIRONMENT_PATH, route_path, output_root)
-        if existing
-        else None
-    )
+async def request_quit(app, pilot, source):
+    if source == "palette":
+        command = next(
+            command
+            for command in app.get_system_commands(app.screen)
+            if command.title == "Quit"
+        )
+        await command.callback()
+    else:
+        await pilot.press(source)
+    await pilot.pause()
 
-    async def exercise() -> None:
-        app = SimLabApp(PROJECT_ROOT, output_root)
+
+def test_main_menu_has_only_investigation_entries_and_shared_guide(tmp_path):
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
         async with app.run_test(size=(150, 50)) as pilot:
-            if generated is not None:
-                await pilot.click("#start-existing")
-                await pilot.pause()
-                app.query_one("#telemetry-select", Select).value = str(
-                    generated.path.resolve()
-                )
-                await pilot.pause()
-                await pilot.click("#inspect")
-            else:
-                await pilot.click("#start-new")
-                await pilot.pause()
-                await pilot.click("#environment-next")
-                await pilot.pause()
-                app.query_one("#route-select", Select).value = str(route_path.resolve())
-                await pilot.pause()
-                await pilot.click("#route-next")
-                await pilot.pause()
-                await pilot.click("#generate")
-            await pilot.pause()
-
-            assert app.inspection is not None
-            assert app.inspection.overview.scenario_id == "failed-kerberos-domain-logon"
-            assert app.query_one("#event-table", DataTable).row_count == 2
-            assert app.selected_event is not None
-            assert app.selected_event.event_id == 4771
-            assert '<Data Name="Status">0x18</Data>' in app.selected_event.xml
-
-            await pilot.click("#inspect-detect")
-            await pilot.pause()
-            context = app.query_one("#detection-context", Static).content
-            assert isinstance(context, Text)
-            assert "Not assessed:" in context.plain
-            assert "Kerberos activity is not assessed" in context.plain
-            await pilot.click("#detect")
-            await pilot.pause()
-            findings = app.query_one("#findings", Static).content
-            assert isinstance(findings, Text)
-            assert "Findings: 0" in findings.plain
-            assert "Not assessed:" in findings.plain
-            assert app.analysis_complete is True
-            assert app.query_one("#profile-select", Select).disabled is True
-
-    asyncio.run(exercise())
-
-
-def test_guides_new_simulation_through_context_and_outputs(tmp_path) -> None:
-    async def exercise() -> None:
-        output_root = tmp_path / "outputs"
-        app = SimLabApp(PROJECT_ROOT, output_root)
-
-        async with app.run_test(size=(150, 50)) as pilot:
-            await pilot.click("#start-new")
-            await pilot.pause()
-
-            assert app.mode is WorkflowMode.NEW
-            assert app.active_stage is WorkflowStage.ENVIRONMENT
+            root = app.screen
             assert app.theme == "simlab-soc"
-            assert app.query_one("#nav-environment", Button).has_class("nav-active")
-            assert app.query_one("#nav-route", Button).disabled is True
-            assert app.query_one("#nav-route", Button).has_class("nav-locked")
-
-            await pilot.click("#environment-next")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.ROUTE
-
-            route = app.query_one("#route-select", Select)
-            route.value = str(SPRAY_ROUTE_PATH.resolve())
-            await pilot.pause()
-            await pilot.click("#route-next")
-            await pilot.pause()
-
-            assert app.active_stage is WorkflowStage.ACQUIRE
-            assert app.query_one("#generate", Button).disabled is False
-
-            await pilot.click("#generate")
-            await pilot.pause()
-
-            assert app.active_stage is WorkflowStage.INSPECT
-            assert app.inspection is not None
-            assert app.inspection.overview.scenario_id == "internal-password-spray"
-            assert app.query_one("#event-table", DataTable).row_count == 6
-            assert app.selected_event is not None
-            assert app.selected_event.xml.startswith("<?xml")
-            assert app.query_one("#nav-detect", Button).disabled is False
-            assert app.query_one("#nav-export", Button).disabled is False
-            assert app.query_one("#nav-inspect", Button).has_class("nav-active")
-            assert app.query_one("#nav-acquire", Button).has_class("nav-done")
-
-            inspection = app.inspection
-            await pilot.click("#workflow-guide")
-            await pilot.pause()
-            assert isinstance(app.screen, GuideScreen)
-            guide_content = app.screen.query_one("#guide-content", Static).content
-            guide_text = (
-                guide_content.plain
-                if isinstance(guide_content, Text)
-                else str(guide_content)
+            assert root.styles.background.ansi == -1
+            card = root.query_one("#welcome-card")
+            assert card.styles.background.ansi == -1
+            assert card.styles.border.top[0] == "ascii"
+            start = root.query_one("#start-preparation", Button)
+            assert start.styles.background.ansi == -1
+            assert not start.styles.border.top[0]
+            assert start.size.height == 1
+            colors = app.get_css_variables()
+            assert root.query_one("#welcome-guide", Button).styles.color == Color.parse(
+                colors["action-color"]
             )
-            assert "Field origin labels" in guide_text
-            assert "not fields a defender would receive" in guide_text
-            await pilot.press("g")
+            assert card.border_title == "SOC investigation workspace"
+            assert card.styles.border_title_color == Color.parse(colors["title-color"])
+            start.focus()
             await pilot.pause()
-            assert not isinstance(app.screen, GuideScreen)
-            assert app.inspection is inspection
-            assert app.active_stage is WorkflowStage.INSPECT
-
-            await pilot.press("g")
+            assert start.styles.color == Color.parse(colors["action-focus-color"])
+            assert start.styles.border.left[0] == "ascii"
+            assert start.styles.border.left[1] == Color.parse(colors["accent"])
+            assert {button.id for button in root.query(Button)} == {
+                "start-preparation",
+                "start-investigation",
+                "welcome-guide",
+            }
+            assert not root.query("#workflow-shell")
+            assert not root.query("#start-new")
+            assert not root.query("#start-existing")
+            assert await pilot.click("#welcome-guide")
             await pilot.pause()
             assert isinstance(app.screen, GuideScreen)
+            assert app.screen.styles.background.ansi == -1
+            assert app.screen.query_one("#guide-dialog").styles.border.top[0] == "ascii"
+            assert "Docker startup/shutdown stays manual" in app.screen.guide_content
+            assert "Alert → Evidence → Context → Assessment" in app.screen.guide_content
+            assert "old/" not in app.screen.guide_content
             await pilot.press("escape")
             await pilot.pause()
-            assert not isinstance(app.screen, GuideScreen)
+            assert app.screen is root
 
-            comparison_content = app.query_one("#inspection-context", Static).content
-            assert isinstance(comparison_content, Text)
-            comparison = comparison_content.plain
-            assert "Event 4776 on dc01: expected 3; match" in comparison
-            assert "Event 4625 on fs01: expected 3; match" in comparison
-
-            await pilot.click("#nav-route")
+            await pilot.press("g")
             await pilot.pause()
-            assert app.query_one("#route-picker").display is False
-            assert app.query_one("#route-select", Select).disabled is True
-            await pilot.click("#route-next")
+            assert isinstance(app.screen, GuideScreen)
+            await pilot.press("g")
             await pilot.pause()
-            assert app.active_stage is WorkflowStage.INSPECT
-
-            await pilot.click("#inspect-next")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.EXPORT
-            assert app.query_one("#export-wazuh", Button).disabled is False
-            commands = app.query_one("#commands", Static).content
-            assert isinstance(commands, Text)
-            assert "simlab export wazuh" in commands.plain
-            assert "simlab detect" not in commands.plain
-            await pilot.click("#export-wazuh")
-            await pilot.pause()
-            assert app.wazuh_export_complete is True
-            assert app.analysis_complete is False
-            assert not (output_root / "analyses").exists()
-            export_content = app.query_one("#wazuh-result", Static).content
-            assert isinstance(export_content, Text)
-            assert "Exported events: 6" in export_content.plain
-            assert "Omitted events: 0" in export_content.plain
-
-            await pilot.click("#export-back")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.INSPECT
-            assert app.inspection is inspection
-            await pilot.click("#inspect-detect")
-            await pilot.pause()
-            detection_content = app.query_one("#detection-context", Static).content
-            assert isinstance(detection_content, Text)
-            detection_context = detection_content.plain
-            assert "3 distinct users within 60s" in detection_context
-            commands = app.query_one("#commands", Static).content
-            assert isinstance(commands, Text)
-            assert "simlab detect authentication" in commands.plain
-            await pilot.click("#detect")
-            await pilot.pause()
-
-            assert app.analysis_complete is True
-            assert app.query_one("#detect-next", Button).disabled is False
-            assert app.query_one("#nav-export", Button).disabled is False
-            assert app.query_one("#profile-picker").display is False
-            assert app.query_one("#profile-select", Select).disabled is True
-            assert app.query_one("#detect", Button).display is False
-            assert app.query_one("#new-analysis", Button).display is True
-            assert app.query_one("#findings").has_class("has-output")
-            assert len(list((output_root / "analyses").glob("*/*/manifest.json"))) == 1
-
-            telemetry_path = app.inspection.overview.path
-            await pilot.click("#new-analysis")
-            await pilot.pause()
-            assert app.analysis_complete is False
-            assert app.wazuh_export_complete is True
-            assert app.query_one("#nav-export", Button).disabled is False
-            assert app.inspection.overview.path == telemetry_path
-            assert app.query_one("#profile-picker").display is True
-            assert app.query_one("#profile-select", Select).disabled is False
-            assert app.query_one("#detect", Button).display is True
-            assert app.query_one("#new-analysis", Button).display is False
-            assert not app.query_one("#findings").has_class("has-output")
-
-            await pilot.click("#detect")
-            await pilot.pause()
-            await pilot.click("#detect-next")
-            await pilot.pause()
-            await pilot.click("#export-wazuh")
-            await pilot.pause()
-
-            assert app.wazuh_export_complete is True
-            assert app.query_one("#wazuh-result").has_class("has-output")
-            assert len(list((output_root / "wazuh").glob("*/*/manifest.json"))) == 1
+            assert app.screen is root
 
     asyncio.run(exercise())
 
 
-def test_opens_existing_telemetry_with_recorded_definition_context(tmp_path) -> None:
-    output_root = tmp_path / "outputs"
-    generated = run_generation_stage(
-        ENVIRONMENT_PATH,
-        SPRAY_ROUTE_PATH,
-        output_root,
-    )
-
-    async def exercise() -> None:
-        app = SimLabApp(PROJECT_ROOT, output_root)
-
+def test_start_and_resume_return_to_the_same_main_menu_without_generating(tmp_path):
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
         async with app.run_test(size=(150, 50)) as pilot:
-            await pilot.click("#start-existing")
+            root = app.screen
+            assert await pilot.click("#start-preparation")
             await pilot.pause()
-
-            assert app.mode is WorkflowMode.EXISTING
-            assert app.active_stage is WorkflowStage.ACQUIRE
-            assert app.query_one("#nav-environment", Button).disabled is True
-            assert app.query_one("#nav-export", Button).disabled is True
-
-            telemetry = app.query_one("#telemetry-select", Select)
-            telemetry.value = str(generated.path.resolve())
+            assert isinstance(app.screen, PreparationScreen)
+            assert app.screen.styles.background.ansi == -1
+            card = app.screen.query_one("#preparation-card")
+            assert card.styles.background.ansi == -1
+            assert card.styles.border.top[0] == "ascii"
+            assert app.screen.prepared is None
+            assert await pilot.click("#prepare-back")
             await pilot.pause()
-            await pilot.click("#inspect")
-            await pilot.pause()
+            assert app.screen is root
 
-            assert app.active_stage is WorkflowStage.INSPECT
-            assert app.inspection is not None
-            assert app.definition_context is not None
+            assert await pilot.click("#start-investigation")
+            await pilot.pause()
+            assert isinstance(app.screen, InvestigationScreen)
+            assert app.screen.styles.background.ansi == -1
+            card = app.screen.query_one("#case-picker-card")
+            assert card.styles.background.ansi == -1
+            assert card.styles.border.top[0] == "ascii"
+            assert app.screen.query_one("#case-open", Button).disabled
+            assert await pilot.click("#case-menu")
+            await pilot.pause()
+            assert app.screen is root
+
+    asyncio.run(exercise())
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_hover_focus_and_disabled_buttons_have_distinct_styles(tmp_path):
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        async with app.run_test(size=(150, 50)) as pilot:
+            guide = app.screen.query_one("#welcome-guide", Button)
+            start = app.screen.query_one("#start-preparation", Button)
+            start.focus()
+            await pilot.pause()
+            assert await pilot.hover("#welcome-guide")
+            await pilot.pause()
+            assert not guide.has_focus
+            assert guide.styles.text_style.underline
+            assert guide.styles.border.left[0] == "blank"
+            guide.focus()
+            await pilot.pause()
+            assert guide.styles.border.left[0] == "ascii"
+            assert guide.styles.text_style.bold
+            assert not guide.styles.text_style.underline
+            assert not guide.styles.border.top[0]
+            start.disabled = True
+            await pilot.pause()
+            assert start.styles.text_style.strike
+            assert start.styles.border.left[0] == "blank"
+            assert start.size.height == guide.size.height == 1
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("identifier", ["case-select", "case-alert-select"])
+def test_dropdown_options_have_visible_hover_and_keyboard_row_backgrounds(
+    prepared, tmp_path, identifier
+):
+    original = {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    }
+
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        async with app.run_test(size=(150, 50)) as pilot:
+            assert await pilot.click("#start-investigation")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, InvestigationScreen)
+            if identifier == "case-alert-select":
+                assert await pilot.click("#case-open")
+                await pilot.pause()
+            selector = screen.query_one(f"#{identifier}", Select)
+            previous_value = selector.value
+            previous_match = screen.alert_index
+            selector.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            overlay = selector.query_one("SelectOverlay", OptionList)
+            assert selector.expanded and overlay.has_focus
+            # Both selectors include a prompt followed by at least one real option.
+            await pilot.press("home", "down")
+            await pilot.pause()
+            assert overlay.highlighted == 1
+            assert await pilot.hover(overlay, offset=(3, 1))
+            await pilot.pause()
+            colors = app.get_css_variables()
+            active_color = Color.parse(colors["dropdown-active-background"])
+            hover_color = Color.parse(colors["dropdown-hover-background"])
+            assert active_color != hover_color
             assert (
-                app.definition_context.environment.status is DefinitionStatus.MATCHING
+                overlay.get_component_styles(
+                    "option-list--option-highlighted"
+                ).background
+                == active_color
             )
-            assert app.definition_context.scenario.status is DefinitionStatus.MATCHING
-            assert app.query_one("#nav-environment", Button).disabled is False
-            assert app.query_one("#nav-export", Button).disabled is False
-
-            inspection = app.inspection
-            await pilot.click("#inspect-next")
+            assert (
+                overlay.get_component_styles("option-list--option-hover").background
+                == hover_color
+            )
+            # Verify rendered row fills, not just declared CSS flags.
+            for line, expected in ((0, hover_color), (1, active_color)):
+                assert any(
+                    segment.style is not None
+                    and segment.style.bgcolor == expected.rich_color
+                    for segment in overlay.render_line(line)
+                )
+            assert selector.value == previous_value
+            assert screen.alert_index == previous_match
+            await pilot.press("escape")
             await pilot.pause()
-            assert app.active_stage is WorkflowStage.EXPORT
-            await pilot.click("#export-wazuh")
-            await pilot.pause()
-            assert app.wazuh_export_complete is True
-            assert app.analysis_complete is False
-            assert not (output_root / "analyses").exists()
-            await pilot.click("#export-back")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.INSPECT
-            assert app.inspection is inspection
-
-            await pilot.click("#nav-environment")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.ENVIRONMENT
-            assert app.query_one("#environment-picker").display is False
-            assert app.query_one("#environment-select", Select).disabled is True
-
-            await pilot.click("#environment-next")
-            await pilot.pause()
-            assert app.active_stage is WorkflowStage.INSPECT
+            assert not selector.expanded
+            assert app.screen.styles.background.ansi == -1
 
     asyncio.run(exercise())
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == original
 
 
-def test_acquired_telemetry_requires_restart_to_change_simulation(tmp_path) -> None:
-    async def exercise() -> None:
-        output_root = tmp_path / "outputs"
-        app = SimLabApp(PROJECT_ROOT, output_root)
+def test_shared_overlay_treats_content_as_read_only_text(tmp_path):
+    content = "[red]literal text[/red] and a saved reference"
 
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
         async with app.run_test(size=(150, 50)) as pilot:
-            await pilot.click("#start-new")
+            root = app.screen
+            await app.push_screen(GuideScreen("Reference", content))
             await pilot.pause()
-            await pilot.click("#environment-next")
+            shown = app.screen.query_one("#guide-content", Static)
+            assert shown.content == content
+            rendered = shown.render()
+            assert isinstance(rendered, Content)
+            assert rendered.plain == content
+            assert await pilot.click("#close-guide")
             await pilot.pause()
-            route = app.query_one("#route-select", Select)
-            route.value = str(SPRAY_ROUTE_PATH.resolve())
-            await pilot.pause()
-            await pilot.click("#route-next")
-            await pilot.pause()
-            await pilot.click("#generate")
-            await pilot.pause()
-
-            assert app.inspection is not None
-            telemetry_path = app.inspection.overview.path
-            await pilot.click("#nav-route")
-            await pilot.pause()
-            assert app.query_one("#route-picker").display is False
-            assert route.disabled is True
-
-            await pilot.click("#nav-acquire")
-            await pilot.pause()
-            assert app.query_one("#generate", Button).display is False
-            assert app.query_one("#restart-simulation", Button).display is True
-
-            await pilot.click("#restart-simulation")
-            await pilot.pause()
-
-            assert app.inspection is None
-            assert app.route_path is None
-            assert app.analysis_complete is False
-            assert app.wazuh_export_complete is False
-            assert app.active_stage is WorkflowStage.ENVIRONMENT
-            assert app.query_one("#environment-picker").display is True
-            assert app.query_one("#environment-select", Select).disabled is False
-            assert app.query_one("#nav-inspect", Button).disabled is True
-            assert app.query_one("#nav-export", Button).disabled is True
-            assert telemetry_path.exists()
+            assert app.screen is root
 
     asyncio.run(exercise())
+
+
+def test_builtin_themes_remain_usable_with_guides_and_screen_styles(tmp_path):
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        async with app.run_test(size=(150, 50)) as pilot:
+            root = app.screen
+            for theme in ("textual-dark", "textual-light", "ansi-dark", "simlab-soc"):
+                app.theme = theme
+                await pilot.pause()
+                assert app.theme == theme
+                assert {
+                    "title-color",
+                    "action-color",
+                    "action-focus-color",
+                } <= app.get_css_variables().keys()
+                assert "Theme" in {
+                    command.title for command in app.get_system_commands(app.screen)
+                }
+                assert await pilot.click("#welcome-guide")
+                await pilot.pause()
+                assert isinstance(app.screen, GuideScreen)
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is root
+
+            app.theme = "textual-dark"
+            await pilot.pause()
+            assert await pilot.click("#start-preparation")
+            await pilot.pause()
+            assert isinstance(app.screen, PreparationScreen)
+            assert await pilot.click("#prepare-back")
+            await pilot.pause()
+            assert await pilot.click("#start-investigation")
+            await pilot.pause()
+            assert isinstance(app.screen, InvestigationScreen)
+
+    asyncio.run(exercise())
+
+
+def test_clean_main_menu_and_guide_allow_all_normal_quit_actions(tmp_path, monkeypatch):
+    exits = []
+
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exits.append(True))
+        async with app.run_test(size=(150, 50)) as pilot:
+            for source in ("q", "ctrl+q", "palette"):
+                await request_quit(app, pilot, source)
+            assert exits == [True, True, True]
+            assert await pilot.click("#welcome-guide")
+            await pilot.pause()
+            await request_quit(app, pilot, "ctrl+q")
+            assert exits == [True, True, True, True]
+
+    asyncio.run(exercise())
+
+
+def test_busy_preparation_blocks_quit_under_guide_and_palette(tmp_path, monkeypatch):
+    exits = []
+    notices = []
+
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exits.append(True))
+        monkeypatch.setattr(
+            app, "notify", lambda message, **kwargs: notices.append(message)
+        )
+        async with app.run_test(size=(150, 50)) as pilot:
+            assert await pilot.click("#start-preparation")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, PreparationScreen)
+            # Exercise the guard without launching a Docker worker.
+            screen.busy = True
+            screen.update_controls()
+            for source in ("q", "ctrl+q", "palette"):
+                await request_quit(app, pilot, source)
+                assert exits == [] and screen.busy
+            assert await pilot.click("#prepare-guide")
+            await pilot.pause()
+            assert isinstance(app.screen, GuideScreen)
+            for source in ("q", "ctrl+q", "palette"):
+                await request_quit(app, pilot, source)
+                assert exits == [] and screen.busy
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+            assert app.screen is not screen
+            await request_quit(app, pilot, "ctrl+q")
+            assert exits == [] and screen.busy
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen
+            assert len(notices) == 7
+            assert all("Preparation is still running" in notice for notice in notices)
+            screen.busy = False
+            screen.update_controls()
+            await request_quit(app, pilot, "q")
+            assert exits == [True]
+
+    asyncio.run(exercise())
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("source", ["q", "ctrl+q", "palette"])
+def test_quit_protects_unsaved_selection_and_notes_through_overlays(
+    prepared, tmp_path, monkeypatch, source
+):
+    original = {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    }
+    exits = []
+
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exits.append(True))
+        async with app.run_test(size=(150, 50)) as pilot:
+            assert await pilot.click("#start-investigation")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, InvestigationScreen)
+            for button in screen.query(Button):
+                button.active_effect_duration = 0
+            assert await pilot.click("#case-open")
+            await pilot.pause()
+            assert not screen.has_unsaved_assessment
+            assert await pilot.click("#case-supporting")
+            await pilot.pause()
+            assert await pilot.click("#case-pin")
+            await pilot.pause()
+            selected = screen.selected_evidence.copy()
+            assert selected and screen.has_unsaved_assessment
+            assert await pilot.click("#case-guide")
+            await pilot.pause()
+            guide = app.screen
+            assert isinstance(guide, GuideScreen)
+            await request_quit(app, pilot, source)
+            prompt = app.screen
+            assert isinstance(prompt, AssessmentExitScreen) and prompt.quitting
+            assert "quit" in str(prompt.query_one("#assessment-discard", Button).label)
+            await request_quit(app, pilot, "ctrl+q")
+            assert app.screen is prompt
+            assert len(app.screen_stack) == 4
+            assert exits == [] and screen.selected_evidence == selected
+            assert await pilot.click("#assessment-stay")
+            await pilot.pause()
+            assert app.screen is guide
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen
+
+            # Notes alone must be protected even with no selected evidence.
+            screen.selected_evidence.clear()
+            screen.update_selection_status()
+            assert not screen.has_unsaved_assessment
+            note = screen.query_one("#assessment-observed-facts", TextArea)
+            note.load_text("Unsaved analyst reasoning.")
+            await pilot.pause()
+            assert screen.has_unsaved_assessment
+            tabs = screen.query_one("#case-tabs", TabbedContent)
+            tabs.active = "case-assessment-pane"
+            await pilot.pause()
+            note.focus()
+            await pilot.pause()
+            before_typing = note.text
+            await pilot.press("q")
+            await pilot.pause()
+            assert len(note.text) == len(before_typing) + 1
+            assert app.screen is screen and exits == []
+            typed_note = note.text
+            screen.query_one("#case-back", Button).focus()
+            await pilot.pause()
+            screen.action_back()
+            await pilot.pause()
+            leave_prompt = app.screen
+            assert isinstance(leave_prompt, AssessmentExitScreen)
+            assert not leave_prompt.quitting
+            await request_quit(app, pilot, source)
+            assert app.screen is leave_prompt and exits == []
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen and note.text == typed_note
+            await request_quit(app, pilot, source)
+            assert isinstance(app.screen, AssessmentExitScreen)
+            assert app.screen.quitting
+            assert await pilot.click("#assessment-discard")
+            await pilot.pause()
+            assert exits == [True]
+
+    asyncio.run(exercise())
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == original
+
+
+@pytest.mark.parametrize("saved", [False, True])
+def test_unchanged_investigations_can_quit_without_a_prompt(
+    prepared, tmp_path, monkeypatch, saved
+):
+    if saved:
+        investigation = load_saved_investigation(
+            prepared.case.path, prepared.evaluation_path
+        )
+        save_assessment(
+            investigation,
+            tmp_path,
+            AssessmentNotes(
+                disposition="needs_evidence",
+                **{field: f"Saved analyst {field}." for field in NOTE_LABELS},
+            ),
+            {prepared.case.evidence[0].event_instance_id},
+        )
+    original = {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    }
+    exits = []
+
+    async def exercise():
+        app = SimLabApp(PROJECT_ROOT, tmp_path)
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exits.append(True))
+        async with app.run_test(size=(150, 50)) as pilot:
+            assert await pilot.click("#start-investigation")
+            await pilot.pause()
+            assert await pilot.click("#case-open")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, InvestigationScreen)
+            assert not screen.has_unsaved_assessment
+            assert (screen.saved_assessment is not None) is saved
+            # Theme changes must also permit rerendering an open investigation.
+            app.theme = "textual-dark"
+            await pilot.pause()
+            screen.render_alert()
+            screen.apply_filters()
+            assert not screen.has_unsaved_assessment
+            screen.query_one("#case-back", Button).focus()
+            await pilot.pause()
+            if saved:
+                screen.view_saved_report()
+                await pilot.pause()
+                assert isinstance(app.screen, GuideScreen)
+            for source in ("q", "ctrl+q", "palette"):
+                await request_quit(app, pilot, source)
+            assert exits == [True, True, True]
+            assert not any(
+                isinstance(item, AssessmentExitScreen) for item in app.screen_stack
+            )
+
+    asyncio.run(exercise())
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == original
